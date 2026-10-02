@@ -44,45 +44,25 @@ export const TickerBar: React.FC<TickerBarProps> = ({
     }
   }, [tickers, tokens]);
 
-  const [categoryFilter, setCategoryFilter] = useState<'all' | 'solana'>('all');
-
-  const visibleTokens = tokens.filter((t) => {
-    if (categoryFilter === 'solana') return t.category === 'solana';
-    return true;
-  });
+  const isSolanaPage = tokens.length > 0 && tokens.every((t) => t.category === 'solana');
 
   return (
     <div className="w-full bg-[#0e121b] border-b border-slate-800/80 px-4 py-2.5 overflow-x-auto no-scrollbar flex items-center gap-3">
-      {/* Quick Filter Pills */}
-      <div className="flex items-center gap-1 bg-[#090d14] p-1 rounded-xl border border-slate-800 flex-shrink-0">
-        <button
-          onClick={() => setCategoryFilter('all')}
-          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-            categoryFilter === 'all'
-              ? 'bg-indigo-600 text-white shadow-sm'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          Tous ({tokens.length})
-        </button>
-        <button
-          onClick={() => setCategoryFilter('solana')}
-          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-            categoryFilter === 'solana'
-              ? 'bg-purple-600/40 text-emerald-300 border border-emerald-500/40'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          <span>🪐 Solana (5)</span>
-        </button>
+      {/* Page Badge Indicator */}
+      <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold flex-shrink-0 select-none ${
+        isSolanaPage
+          ? 'bg-gradient-to-r from-purple-950/60 to-emerald-950/60 text-emerald-300 border-emerald-500/30'
+          : 'bg-slate-900 border-slate-800 text-slate-300'
+      }`}>
+        <span className={`w-2 h-2 rounded-full ${isSolanaPage ? 'bg-emerald-400 animate-pulse' : 'bg-indigo-400'}`} />
+        <span>{isSolanaPage ? '🪐 Écosystème Solana (5)' : '🌐 Marchés Globaux (7)'}</span>
       </div>
 
       <div className="h-6 w-[1px] bg-slate-800 flex-shrink-0" />
 
       {/* Tokens List */}
       <div className="flex items-center gap-3 min-w-max">
-        {visibleTokens.map((token) => {
+        {tokens.map((token) => {
           const ticker = tickers[token.symbol];
           const isSelected = token.id === selectedTokenId;
           const flash = flashStates[token.symbol];

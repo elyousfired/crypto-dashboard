@@ -171,5 +171,6 @@ export const TIMEFRAMES: { label: string; value: Timeframe; binanceInterval: str
 ];
 
 export const SOLANA_ECOSYSTEM_TOKEN_IDS = ['sol', 'jup', 'met', 'jto', 'pump'];
-export const SOLANA_ECOSYSTEM_TOKENS = TOKENS.filter((t) => t.category === 'solana');
+export const SOLANA_TOKENS: TokenConfig[] = TOKENS.filter((t) => t.category === 'solana');
+export const GLOBAL_TOKENS: TokenConfig[] = TOKENS.filter((t) => t.category !== 'solana' || t.id === 'sol');
 

@@ -229,49 +229,47 @@ export const MarketTable24h: React.FC<MarketTable24hProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#0d121c] p-3 rounded-xl border border-slate-800/80">
         {/* Exchange Filter Pills */}
         <div className="flex items-center gap-1.5 bg-[#090d14] p-1 rounded-lg border border-slate-800">
-          <button
-            onClick={() => setExchangeFilter('all')}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
-              exchangeFilter === 'all'
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Tous ({tokens.length})
-          </button>
-          <button
-            onClick={() => setExchangeFilter('solana')}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-              exchangeFilter === 'solana'
-                ? 'bg-purple-600/30 text-emerald-300 border border-emerald-500/50 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span>🪐 Solana Hub ({tokens.filter((t) => t.category === 'solana').length})</span>
-          </button>
-          <button
-            onClick={() => setExchangeFilter('binance')}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-              exchangeFilter === 'binance'
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-amber-400" />
-            <span>Binance</span>
-          </button>
-          <button
-            onClick={() => setExchangeFilter('bybit')}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
-              exchangeFilter === 'bybit'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-cyan-400" />
-            <span>Bybit</span>
-          </button>
+          {tokens.every((t) => t.category === 'solana') ? (
+            <div className="px-3 py-1 rounded-md text-xs font-bold text-emerald-300 flex items-center gap-1.5 bg-purple-950/40 border border-emerald-500/30">
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span>🪐 5 Tokens Solana Exclusifs</span>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={() => setExchangeFilter('all')}
+                className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer ${
+                  exchangeFilter === 'all'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Tous ({tokens.length})
+              </button>
+              <button
+                onClick={() => setExchangeFilter('binance')}
+                className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                  exchangeFilter === 'binance'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-amber-400" />
+                <span>Binance</span>
+              </button>
+              <button
+                onClick={() => setExchangeFilter('bybit')}
+                className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                  exchangeFilter === 'bybit'
+                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                <span>Bybit</span>
+              </button>
+            </>
+          )}
         </div>
 
         {/* Search input */}

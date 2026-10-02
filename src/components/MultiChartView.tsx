@@ -201,35 +201,38 @@ export const MultiChartView: React.FC<MultiChartViewProps> = ({
   multiCandles,
   onSelectToken,
 }) => {
-  return (
-    <div className="p-4 lg:p-6 space-y-8">
-      {/* Section 1: Solana Ecosystem (SOL, JUP, MET, JTO, PUMP) */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
-            <h2 className="text-lg font-bold text-white m-0">
-              Écosystème Solana (SOL, JUP, MET, JTO, PUMP)
-            </h2>
-            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              Solana Hub
-            </span>
-          </div>
+  const isPureSolanaPage = tokens.length > 0 && tokens.every((t) => t.category === 'solana');
+
+  if (isPureSolanaPage) {
+    return (
+      <div className="p-4 lg:p-6 space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
+          <h2 className="text-lg font-bold text-white m-0">
+            Multi-Charts : Écosystème Solana (5 Tokens)
+          </h2>
+          <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+            100% Solana Exclusif
+          </span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-          {tokens
-            .filter((t) => t.category === 'solana')
-            .map((token) => (
-              <MiniChartCard
-                key={token.id}
-                token={token}
-                ticker={tickers[token.symbol]}
-                candles={multiCandles[token.symbol] || []}
-                onSelect={() => onSelectToken(token)}
-              />
-            ))}
+          {tokens.map((token) => (
+            <MiniChartCard
+              key={token.id}
+              token={token}
+              ticker={tickers[token.symbol]}
+              candles={multiCandles[token.symbol] || []}
+              onSelect={() => onSelectToken(token)}
+            />
+          ))}
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="p-4 lg:p-6 space-y-8">
+      {/* Section 1: Binance Markets */}
 
       {/* Section 2: Binance Altcoins (Sui, Zcash, Pengu) */}
       <div>

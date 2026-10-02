@@ -1,16 +1,16 @@
 import React from 'react';
-import type { ViewMode } from '../types/crypto';
-import { Activity, Grid, Monitor, RefreshCw, TrendingUp, Table, Repeat, Zap } from 'lucide-react';
+import type { ViewMode, DashboardPage } from '../types/crypto';
+import { Activity, Grid, Monitor, RefreshCw, TrendingUp, Table, Repeat, Zap, Globe } from 'lucide-react';
 
 interface HeaderProps {
+  page: DashboardPage;
+  setPage: (page: DashboardPage) => void;
   viewMode: ViewMode;
   setViewMode: (mode: ViewMode) => void;
   onRefresh: () => void;
   binanceConnected: boolean;
   bybitConnected: boolean;
   activeExchangeCount: number;
-  showSolana?: boolean;
-  onToggleSolana?: () => void;
   showTable?: boolean;
   onToggleTable?: () => void;
   showRotation?: boolean;
@@ -18,46 +18,99 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  page,
+  setPage,
   viewMode,
   setViewMode,
   onRefresh,
   binanceConnected,
   bybitConnected,
-  showSolana,
-  onToggleSolana,
   showTable,
   onToggleTable,
   showRotation,
   onToggleRotation,
 }) => {
   return (
-    <header className="border-b border-slate-800/80 bg-[#0d111a]/90 backdrop-blur-md sticky top-0 z-50 px-4 lg:px-6 py-3">
-      <div className="max-w-[1920px] mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
-        {/* Brand / Logo */}
-        <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
+    <header className="border-b border-slate-800/80 bg-[#0d111a]/95 backdrop-blur-md sticky top-0 z-50 px-4 lg:px-6 py-3">
+      <div className="max-w-[1920px] mx-auto flex flex-col xl:flex-row items-center justify-between gap-3">
+        {/* Brand & Page Navigation Tabs */}
+        <div className="flex flex-col sm:flex-row items-center gap-4 w-full xl:w-auto justify-between xl:justify-start">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 via-indigo-600 to-cyan-400 p-0.5 shadow-lg shadow-indigo-500/20">
+            <div className={`w-10 h-10 rounded-xl p-0.5 shadow-lg ${
+              page === 'solana'
+                ? 'bg-gradient-to-tr from-purple-600 via-indigo-600 to-emerald-400 shadow-purple-500/25'
+                : 'bg-gradient-to-tr from-amber-500 via-indigo-600 to-cyan-400 shadow-indigo-500/20'
+            }`}>
               <div className="w-full h-full bg-[#0b0e14] rounded-[10px] flex items-center justify-center">
-                <Activity className="w-5 h-5 text-amber-400" />
+                {page === 'solana' ? (
+                  <Zap className="w-5 h-5 text-emerald-400" />
+                ) : (
+                  <Activity className="w-5 h-5 text-amber-400" />
+                )}
               </div>
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-bold tracking-tight text-white m-0 flex items-center gap-1.5">
-                  Apex <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-indigo-400 to-cyan-400">Terminal</span>
+                  Apex <span className={`text-transparent bg-clip-text ${
+                    page === 'solana'
+                      ? 'bg-gradient-to-r from-purple-400 via-emerald-300 to-teal-300'
+                      : 'bg-gradient-to-r from-amber-400 via-indigo-400 to-cyan-400'
+                  }`}>
+                    {page === 'solana' ? 'Solana Hub' : 'Terminal'}
+                  </span>
                 </h1>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
-                  v2.0 Live
+                <span className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded border ${
+                  page === 'solana'
+                    ? 'bg-purple-500/20 text-emerald-300 border-purple-500/30'
+                    : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                }`}>
+                  {page === 'solana' ? '100% Solana' : 'Global Hub'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap">
-                <span>Binance & Bybit Terminal</span>
-                <span className="text-slate-600">•</span>
-                <span className="text-emerald-400 font-medium">Solana Hub (SOL, JUP, MET, JTO, PUMP)</span>
-                <span className="text-slate-600">•</span>
-                <span className="text-slate-400">Sui • ZEC • PENGU • Monad • HYPE</span>
+                {page === 'solana' ? (
+                  <>
+                    <span className="text-emerald-400 font-semibold">Page Dédiée 100% Solana</span>
+                    <span className="text-slate-600">•</span>
+                    <span className="text-slate-200">SOL • JUP • MET • JTO • PUMP</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Terminal Multi-Exchange</span>
+                    <span className="text-slate-600">•</span>
+                    <span className="text-slate-300">Sui • SOL • ZEC • PENGU • Monad • HYPE • HYPER</span>
+                  </>
+                )}
               </p>
             </div>
+          </div>
+
+          {/* Dedicated Page Tabs */}
+          <div className="flex items-center bg-[#090d14] border border-slate-800 p-1 rounded-2xl shadow-inner w-full sm:w-auto justify-center">
+            <button
+              onClick={() => setPage('solana')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${
+                page === 'solana'
+                  ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-emerald-500 text-white shadow-md shadow-purple-950/40 ring-1 ring-emerald-400/40'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-emerald-400" />
+              <span>🪐 Écosystème Solana (5)</span>
+            </button>
+
+            <button
+              onClick={() => setPage('global')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${
+                page === 'global'
+                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-950/40'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5 text-blue-400" />
+              <span>🌐 Marchés Globaux (7)</span>
+            </button>
           </div>
 
           {/* Quick status on mobile */}
@@ -149,22 +202,6 @@ export const Header: React.FC<HeaderProps> = ({
               <span>% Gain / Loss</span>
             </button>
           </div>
-
-          {/* Solana Hub Toggle */}
-          {onToggleSolana && (
-            <button
-              onClick={onToggleSolana}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-                showSolana
-                  ? 'bg-gradient-to-r from-purple-600/30 to-emerald-600/30 text-emerald-300 border-emerald-500/50 shadow-md shadow-purple-950/40 ring-1 ring-emerald-500/30'
-                  : 'bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-slate-700/60'
-              }`}
-              title="Afficher / Masquer l'Écosystème Solana Hub (SOL, JUP, MET, JTO, PUMP)"
-            >
-              <Zap className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Solana Hub</span>
-            </button>
-          )}
 
           {/* Swap Rotation Scanner Toggle */}
           {onToggleRotation && (

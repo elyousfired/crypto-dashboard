@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { TOKENS, TIMEFRAMES } from './config/tokens';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { TOKENS, SOLANA_TOKENS, GLOBAL_TOKENS, TIMEFRAMES } from './config/tokens';
 import type {
   TokenConfig,
   TickerData,
@@ -10,6 +10,7 @@ import type {
   ChartType,
   ViewMode,
   Stats30d,
+  DashboardPage,
 } from './types/crypto';
 import {
   fetchBinanceTickers,
@@ -40,13 +41,57 @@ import { MarketTable24h } from './components/MarketTable24h';
 import { SolanaEcosystemSection } from './components/SolanaEcosystemSection';
 
 export const App: React.FC = () => {
+  // Navigation: Dedicated Page ('solana' | 'global')
+  const [activePage, setActivePage] = useState<DashboardPage>(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#global') {
+      return 'global';
+    }
+    return 'solana'; // Defaults to dedicated Solana page
+  });
+
+  const currentTokens = useMemo(() => {
+    return activePage === 'solana' ? SOLANA_TOKENS : GLOBAL_TOKENS;
+  }, [activePage]);
+
+  // Selected token defaults to SOL on solana page, SUI on global page
+  const [selectedToken, setSelectedToken] = useState<TokenConfig>(() => {
+    return typeof window !== 'undefined' && window.location.hash === '#global'
+      ? GLOBAL_TOKENS[0]
+      : SOLANA_TOKENS[0];
+  });
+
   // Navigation & View mode: focus | grid | compare
   const [viewMode, setViewMode] = useState<ViewMode>('focus');
-  const [selectedToken, setSelectedToken] = useState<TokenConfig>(TOKENS[0]); // default SUI
   const [showOrderBook, setShowOrderBook] = useState<boolean>(true); // Affiché / Désaffiché Order Book
-  const [showSolanaSection, setShowSolanaSection] = useState<boolean>(true); // Affiché / Désaffiché Solana Hub
   const [showRotationScanner, setShowRotationScanner] = useState<boolean>(true); // Affiché / Désaffiché Swap Scanner
   const [showMarketTable, setShowMarketTable] = useState<boolean>(true); // Affiché / Désaffiché Tableau 24h
+
+  const handleSetPage = (page: DashboardPage) => {
+    setActivePage(page);
+    if (typeof window !== 'undefined') {
+      window.location.hash = page;
+    }
+    if (page === 'solana') {
+      setSelectedToken(SOLANA_TOKENS[0]); // SOL
+    } else {
+      setSelectedToken(GLOBAL_TOKENS[0]); // SUI
+    }
+  };
+
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash;
+      if (hash === '#global') {
+        setActivePage('global');
+        setSelectedToken(GLOBAL_TOKENS[0]);
+      } else if (hash === '#solana') {
+        setActivePage('solana');
+        setSelectedToken(SOLANA_TOKENS[0]);
+      }
+    };
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
 
   // Chart configuration
   const [timeframe, setTimeframe] = useState<Timeframe>('1h');
@@ -276,6 +321,8 @@ export const App: React.FC = () => {
     <div className="min-h-screen bg-[#090d14] text-slate-100 flex flex-col selection:bg-indigo-500/30 selection:text-indigo-200">
       {/* Header */}
       <Header
+        page={activePage}
+        setPage={handleSetPage}
         viewMode={viewMode}
         setViewMode={setViewMode}
         onRefresh={() => {
@@ -286,18 +333,16 @@ export const App: React.FC = () => {
         }}
         binanceConnected={binanceConnected}
         bybitConnected={bybitConnected}
-        activeExchangeCount={2}
-        showSolana={showSolanaSection}
-        onToggleSolana={() => setShowSolanaSection(!showSolanaSection)}
+        activeExchangeCount={activePage === 'solana' ? 1 : 2}
         showRotation={showRotationScanner}
         onToggleRotation={() => setShowRotationScanner(!showRotationScanner)}
         showTable={showMarketTable}
         onToggleTable={() => setShowMarketTable(!showMarketTable)}
       />
 
-      {/* Horizontal Ticker Carousel */}
+      {/* Horizontal Ticker Carousel (Exclusively 5 Solana tokens on Solana page, 7 on Global page) */}
       <TickerBar
-        tokens={TOKENS}
+        tokens={currentTokens}
         tickers={tickers}
         selectedTokenId={selectedToken.id}
         onSelectToken={handleSelectToken}
@@ -374,7 +419,7 @@ export const App: React.FC = () => {
           /* Multi-Chart Grid View */
           <div className="flex-1">
             <MultiChartView
-              tokens={TOKENS}
+              tokens={currentTokens}
               tickers={tickers}
               multiCandles={multiCandles}
               onSelectToken={handleSelectToken}
@@ -384,7 +429,7 @@ export const App: React.FC = () => {
           /* Multi-Asset Performance % Comparison Chart (Gain / Loss) */
           <div className="flex-1">
             <ComparePerformanceChart
-              tokens={TOKENS}
+              tokens={currentTokens}
               multiCandles={multiCandles}
               timeframe={compareTimeframe}
               onTimeframeChange={handleCompareTimeframeChange}
@@ -393,29 +438,29 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* Dedicated Solana Ecosystem Section (SOL, JUP, MET, JTO, PUMP) */}
-        {showSolanaSection && (
+        {/* Dedicated Solana Hub Section (Displayed ONLY on Solana page) */}
+        {activePage === 'solana' && (
           <SolanaEcosystemSection
-            tokens={TOKENS}
+            tokens={SOLANA_TOKENS}
             tickers={tickers}
             stats30dMap={stats30dMap}
             onSelectToken={handleSelectToken}
           />
         )}
 
-        {/* Rotation & Arbitrage Swap Scanner */}
+        {/* Rotation & Arbitrage Swap Scanner (Intra-Solana on Solana page, Intra-Global on Global page) */}
         {showRotationScanner && (
           <RotationSwapScanner
-            tokens={TOKENS}
+            tokens={currentTokens}
             tickers={tickers}
             onSelectToken={handleSelectToken}
           />
         )}
 
-        {/* 24-Hour Market Overview Table (Tableau 24h & Écart Sommet 30J) */}
+        {/* 24-Hour Market Overview Table (5 tokens on Solana page, 7 tokens on Global page) */}
         {showMarketTable && (
           <MarketTable24h
-            tokens={TOKENS}
+            tokens={currentTokens}
             tickers={tickers}
             stats30dMap={stats30dMap}
             onSelectToken={handleSelectToken}
@@ -430,11 +475,17 @@ export const App: React.FC = () => {
           <span>Real-time feeds connected: Binance Spot REST/WS & Bybit Spot/V5 REST/WS</span>
         </div>
         <div className="flex items-center gap-4 text-slate-400 flex-wrap">
-          <span className="text-emerald-400 font-semibold">Solana: SOL • JUP • MET • JTO • PUMP</span>
-          <span>•</span>
-          <span>Binance: Sui • Zcash • Pengu</span>
-          <span>•</span>
-          <span>Bybit: Monad • Hyperliquid • Hyperlane</span>
+          {activePage === 'solana' ? (
+            <span className="text-emerald-400 font-semibold">
+              Page Dédiée 100% Solana : SOL • JUP • MET • JTO • PUMP (Binance Feed)
+            </span>
+          ) : (
+            <>
+              <span>Binance: Sui • SOL • Zcash • Pengu</span>
+              <span>•</span>
+              <span>Bybit: Monad • Hyperliquid • Hyperlane</span>
+            </>
+          )}
         </div>
       </footer>
     </div>
