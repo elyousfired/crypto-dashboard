@@ -37,12 +37,14 @@ import { MultiChartView } from './components/MultiChartView';
 import { ComparePerformanceChart } from './components/ComparePerformanceChart';
 import { RotationSwapScanner } from './components/RotationSwapScanner';
 import { MarketTable24h } from './components/MarketTable24h';
+import { SolanaEcosystemSection } from './components/SolanaEcosystemSection';
 
 export const App: React.FC = () => {
   // Navigation & View mode: focus | grid | compare
   const [viewMode, setViewMode] = useState<ViewMode>('focus');
   const [selectedToken, setSelectedToken] = useState<TokenConfig>(TOKENS[0]); // default SUI
   const [showOrderBook, setShowOrderBook] = useState<boolean>(true); // Affiché / Désaffiché Order Book
+  const [showSolanaSection, setShowSolanaSection] = useState<boolean>(true); // Affiché / Désaffiché Solana Hub
   const [showRotationScanner, setShowRotationScanner] = useState<boolean>(true); // Affiché / Désaffiché Swap Scanner
   const [showMarketTable, setShowMarketTable] = useState<boolean>(true); // Affiché / Désaffiché Tableau 24h
 
@@ -285,6 +287,8 @@ export const App: React.FC = () => {
         binanceConnected={binanceConnected}
         bybitConnected={bybitConnected}
         activeExchangeCount={2}
+        showSolana={showSolanaSection}
+        onToggleSolana={() => setShowSolanaSection(!showSolanaSection)}
         showRotation={showRotationScanner}
         onToggleRotation={() => setShowRotationScanner(!showRotationScanner)}
         showTable={showMarketTable}
@@ -389,6 +393,16 @@ export const App: React.FC = () => {
           </div>
         )}
 
+        {/* Dedicated Solana Ecosystem Section (SOL, JUP, MET, JTO, PUMP) */}
+        {showSolanaSection && (
+          <SolanaEcosystemSection
+            tokens={TOKENS}
+            tickers={tickers}
+            stats30dMap={stats30dMap}
+            onSelectToken={handleSelectToken}
+          />
+        )}
+
         {/* Rotation & Arbitrage Swap Scanner */}
         {showRotationScanner && (
           <RotationSwapScanner
@@ -415,8 +429,12 @@ export const App: React.FC = () => {
           <span className="w-2 h-2 rounded-full bg-emerald-400" />
           <span>Real-time feeds connected: Binance Spot REST/WS & Bybit Spot/V5 REST/WS</span>
         </div>
-        <div className="flex items-center gap-4 text-slate-400">
-          <span>Tokens: Sui, Solana, Zcash, Pengu (Binance) | Monad, Hyperliquid, Hyperlane (Bybit)</span>
+        <div className="flex items-center gap-4 text-slate-400 flex-wrap">
+          <span className="text-emerald-400 font-semibold">Solana: SOL • JUP • MET • JTO • PUMP</span>
+          <span>•</span>
+          <span>Binance: Sui • Zcash • Pengu</span>
+          <span>•</span>
+          <span>Bybit: Monad • Hyperliquid • Hyperlane</span>
         </div>
       </footer>
     </div>

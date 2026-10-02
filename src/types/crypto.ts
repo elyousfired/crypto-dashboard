@@ -13,6 +13,8 @@ export interface TokenConfig {
   color: string;
   accentGradient: string;
   description: string;
+  category?: 'solana' | 'l1' | 'bybit-ecosystem' | 'defi' | 'meme' | 'privacy';
+  ecosystemRole?: string;
 }
 
 export interface TickerData {

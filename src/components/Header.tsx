@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ViewMode } from '../types/crypto';
-import { Activity, Grid, Monitor, RefreshCw, TrendingUp, Table, Repeat } from 'lucide-react';
+import { Activity, Grid, Monitor, RefreshCw, TrendingUp, Table, Repeat, Zap } from 'lucide-react';
 
 interface HeaderProps {
   viewMode: ViewMode;
@@ -9,6 +9,8 @@ interface HeaderProps {
   binanceConnected: boolean;
   bybitConnected: boolean;
   activeExchangeCount: number;
+  showSolana?: boolean;
+  onToggleSolana?: () => void;
   showTable?: boolean;
   onToggleTable?: () => void;
   showRotation?: boolean;
@@ -21,6 +23,8 @@ export const Header: React.FC<HeaderProps> = ({
   onRefresh,
   binanceConnected,
   bybitConnected,
+  showSolana,
+  onToggleSolana,
   showTable,
   onToggleTable,
   showRotation,
@@ -46,10 +50,12 @@ export const Header: React.FC<HeaderProps> = ({
                   v2.0 Live
                 </span>
               </div>
-              <p className="text-xs text-slate-400 flex items-center gap-1.5">
-                <span>Binance & Bybit Multi-Exchange Crypto Hub</span>
+              <p className="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap">
+                <span>Binance & Bybit Terminal</span>
                 <span className="text-slate-600">•</span>
-                <span className="text-slate-400">Sui • SOL • ZEC • PENGU • Monad • Hyper</span>
+                <span className="text-emerald-400 font-medium">Solana Hub (SOL, JUP, MET, JTO, PUMP)</span>
+                <span className="text-slate-600">•</span>
+                <span className="text-slate-400">Sui • ZEC • PENGU • Monad • HYPE</span>
               </p>
             </div>
           </div>
@@ -143,6 +149,22 @@ export const Header: React.FC<HeaderProps> = ({
               <span>% Gain / Loss</span>
             </button>
           </div>
+
+          {/* Solana Hub Toggle */}
+          {onToggleSolana && (
+            <button
+              onClick={onToggleSolana}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                showSolana
+                  ? 'bg-gradient-to-r from-purple-600/30 to-emerald-600/30 text-emerald-300 border-emerald-500/50 shadow-md shadow-purple-950/40 ring-1 ring-emerald-500/30'
+                  : 'bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-slate-700/60'
+              }`}
+              title="Afficher / Masquer l'Écosystème Solana Hub (SOL, JUP, MET, JTO, PUMP)"
+            >
+              <Zap className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Solana Hub</span>
+            </button>
+          )}
 
           {/* Swap Rotation Scanner Toggle */}
           {onToggleRotation && (

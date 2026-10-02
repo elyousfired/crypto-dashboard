@@ -48,7 +48,7 @@ export const MarketTable24h: React.FC<MarketTable24hProps> = ({
   stats30dMap = {},
   onSelectToken,
 }) => {
-  const [exchangeFilter, setExchangeFilter] = useState<'all' | 'binance' | 'bybit'>('all');
+  const [exchangeFilter, setExchangeFilter] = useState<'all' | 'solana' | 'binance' | 'bybit'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortField, setSortField] = useState<SortField>('quoteVolume');
   const [sortDir, setSortDir] = useState<SortDirection>('desc');
@@ -67,8 +67,14 @@ export const MarketTable24h: React.FC<MarketTable24hProps> = ({
   const filteredAndSortedTokens = useMemo(() => {
     return tokens
       .filter((token) => {
-        // Exchange filter
-        if (exchangeFilter !== 'all' && token.exchange !== exchangeFilter) {
+        // Exchange / Category filter
+        if (exchangeFilter === 'solana' && token.category !== 'solana') {
+          return false;
+        }
+        if (exchangeFilter === 'binance' && token.exchange !== 'binance') {
+          return false;
+        }
+        if (exchangeFilter === 'bybit' && token.exchange !== 'bybit') {
           return false;
         }
         // Search query
@@ -234,6 +240,17 @@ export const MarketTable24h: React.FC<MarketTable24hProps> = ({
             Tous ({tokens.length})
           </button>
           <button
+            onClick={() => setExchangeFilter('solana')}
+            className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+              exchangeFilter === 'solana'
+                ? 'bg-purple-600/30 text-emerald-300 border border-emerald-500/50 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span>🪐 Solana Hub ({tokens.filter((t) => t.category === 'solana').length})</span>
+          </button>
+          <button
             onClick={() => setExchangeFilter('binance')}
             className={`px-3 py-1 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
               exchangeFilter === 'binance'
@@ -396,7 +413,7 @@ export const MarketTable24h: React.FC<MarketTable24hProps> = ({
                           {token.baseAsset.slice(0, 3)}
                         </div>
                         <div>
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-bold text-slate-100 text-sm">{token.baseAsset}</span>
                             <span
                               className={`text-[9px] uppercase px-1.5 py-0.2 rounded font-semibold ${
@@ -407,6 +424,11 @@ export const MarketTable24h: React.FC<MarketTable24hProps> = ({
                             >
                               {token.exchange}
                             </span>
+                            {token.category === 'solana' && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                {token.ecosystemRole?.split('&')[0] || 'Solana'}
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-slate-400 font-sans mt-0.5">
                             {token.name}
