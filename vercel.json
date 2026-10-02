@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/binance/(.*)",
+      "destination": "https://api.binance.com/$1"
+    },
+    {
+      "source": "/api/bybit/(.*)",
+      "destination": "https://api.bybit.com/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
