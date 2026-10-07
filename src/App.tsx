@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { TOKENS, SOLANA_TOKENS, GLOBAL_TOKENS, TIMEFRAMES } from './config/tokens';
+import { TOKENS, SOLANA_TOKENS, HYPERLIQUID_TOKENS, GLOBAL_TOKENS, TIMEFRAMES } from './config/tokens';
 import type {
   TokenConfig,
   TickerData,
@@ -28,6 +28,14 @@ import {
   fetchBybit30dStats,
   BybitWebSocketManager,
 } from './services/bybitService';
+import {
+  fetchHyperliquidTickers,
+  fetchHyperliquidKlines,
+  fetchHyperliquidTrades,
+  fetchHyperliquidOrderBook,
+  fetchHyperliquid30dStats,
+  HyperliquidWebSocketManager,
+} from './services/hyperliquidService';
 import { Header } from './components/Header';
 import { TickerBar } from './components/TickerBar';
 import { TokenStats } from './components/TokenStats';
@@ -39,25 +47,31 @@ import { ComparePerformanceChart } from './components/ComparePerformanceChart';
 import { RotationSwapScanner } from './components/RotationSwapScanner';
 import { MarketTable24h } from './components/MarketTable24h';
 import { SolanaEcosystemSection } from './components/SolanaEcosystemSection';
+import { HyperliquidEcosystemSection } from './components/HyperliquidEcosystemSection';
 
 export const App: React.FC = () => {
-  // Navigation: Dedicated Page ('solana' | 'global')
+  // Navigation: Dedicated Page ('solana' | 'hyperliquid' | 'global')
   const [activePage, setActivePage] = useState<DashboardPage>(() => {
-    if (typeof window !== 'undefined' && window.location.hash === '#global') {
-      return 'global';
+    if (typeof window !== 'undefined') {
+      if (window.location.hash === '#global') return 'global';
+      if (window.location.hash === '#hyperliquid') return 'hyperliquid';
     }
     return 'solana'; // Defaults to dedicated Solana page
   });
 
   const currentTokens = useMemo(() => {
-    return activePage === 'solana' ? SOLANA_TOKENS : GLOBAL_TOKENS;
+    if (activePage === 'solana') return SOLANA_TOKENS;
+    if (activePage === 'hyperliquid') return HYPERLIQUID_TOKENS;
+    return GLOBAL_TOKENS;
   }, [activePage]);
 
-  // Selected token defaults to SOL on solana page, SUI on global page
+  // Selected token defaults to SOL on solana page, HYPE on hyperliquid page, SUI on global page
   const [selectedToken, setSelectedToken] = useState<TokenConfig>(() => {
-    return typeof window !== 'undefined' && window.location.hash === '#global'
-      ? GLOBAL_TOKENS[0]
-      : SOLANA_TOKENS[0];
+    if (typeof window !== 'undefined') {
+      if (window.location.hash === '#global') return GLOBAL_TOKENS[0];
+      if (window.location.hash === '#hyperliquid') return HYPERLIQUID_TOKENS[0];
+    }
+    return SOLANA_TOKENS[0];
   });
 
   // Navigation & View mode: focus | grid | compare
@@ -73,6 +87,8 @@ export const App: React.FC = () => {
     }
     if (page === 'solana') {
       setSelectedToken(SOLANA_TOKENS[0]); // SOL
+    } else if (page === 'hyperliquid') {
+      setSelectedToken(HYPERLIQUID_TOKENS[0]); // HYPE
     } else {
       setSelectedToken(GLOBAL_TOKENS[0]); // SUI
     }
@@ -84,6 +100,9 @@ export const App: React.FC = () => {
       if (hash === '#global') {
         setActivePage('global');
         setSelectedToken(GLOBAL_TOKENS[0]);
+      } else if (hash === '#hyperliquid') {
+        setActivePage('hyperliquid');
+        setSelectedToken(HYPERLIQUID_TOKENS[0]);
       } else if (hash === '#solana') {
         setActivePage('solana');
         setSelectedToken(SOLANA_TOKENS[0]);
@@ -115,20 +134,24 @@ export const App: React.FC = () => {
   // Connection states
   const [binanceConnected, setBinanceConnected] = useState<boolean>(true);
   const [bybitConnected, setBybitConnected] = useState<boolean>(true);
+  const [hyperliquidConnected, setHyperliquidConnected] = useState<boolean>(true);
   const [isLoadingCandles, setIsLoadingCandles] = useState<boolean>(false);
 
   // WebSocket Managers references
   const binanceWsRef = useRef<BinanceWebSocketManager | null>(null);
   const bybitWsRef = useRef<BybitWebSocketManager | null>(null);
+  const hyperliquidWsRef = useRef<HyperliquidWebSocketManager | null>(null);
 
   // 1. Initial Ticker Fetching
   const loadAllTickers = useCallback(async () => {
     const binanceTokens = TOKENS.filter((t) => t.exchange === 'binance').map((t) => t.symbol);
     const bybitTokens = TOKENS.filter((t) => t.exchange === 'bybit').map((t) => t.symbol);
+    const hlTokens = TOKENS.filter((t) => t.exchange === 'hyperliquid');
 
-    const [bTickers, byTickers] = await Promise.all([
+    const [bTickers, byTickers, hlTickers] = await Promise.all([
       fetchBinanceTickers(binanceTokens),
       fetchBybitTickers(bybitTokens, 'spot'),
+      fetchHyperliquidTickers(hlTokens),
     ]);
 
     setTickers((prev) => {
@@ -139,11 +162,15 @@ export const App: React.FC = () => {
       byTickers.forEach((t) => {
         next[t.symbol] = t;
       });
+      hlTickers.forEach((t) => {
+        next[t.symbol] = t;
+      });
       return next;
     });
 
     setBinanceConnected(bTickers.length > 0);
     setBybitConnected(byTickers.length > 0);
+    setHyperliquidConnected(hlTickers.length > 0);
   }, []);
 
   // 2. Fetch 30-Day High & Drawdown Stats for all tokens
@@ -154,6 +181,9 @@ export const App: React.FC = () => {
         try {
           if (token.exchange === 'binance') {
             const s = await fetchBinance30dStats(token.symbol);
+            if (s) results[token.symbol] = s;
+          } else if (token.exchange === 'hyperliquid') {
+            const s = await fetchHyperliquid30dStats(token.hyperliquidCoin || token.symbol);
             if (s) results[token.symbol] = s;
           } else {
             const s = await fetchBybit30dStats(token.symbol, token.bybitCategory || 'spot');
@@ -178,6 +208,16 @@ export const App: React.FC = () => {
           fetchBinanceKlines(selectedToken.symbol, tfConfig.binanceInterval, 200),
           fetchBinanceTrades(selectedToken.symbol, 30),
           fetchBinanceOrderBook(selectedToken.symbol, 15),
+        ]);
+        setCandles(klineData);
+        setTrades(tradeData);
+        setOrderBook(bookData);
+      } else if (selectedToken.exchange === 'hyperliquid') {
+        const coin = selectedToken.hyperliquidCoin || selectedToken.baseAsset;
+        const [klineData, tradeData, bookData] = await Promise.all([
+          fetchHyperliquidKlines(coin, timeframe, 200),
+          fetchHyperliquidTrades(coin, 30),
+          fetchHyperliquidOrderBook(coin, 15),
         ]);
         setCandles(klineData);
         setTrades(tradeData);
@@ -210,6 +250,10 @@ export const App: React.FC = () => {
         try {
           if (token.exchange === 'binance') {
             const data = await fetchBinanceKlines(token.symbol, binanceInterval, 100);
+            results[token.symbol] = data;
+          } else if (token.exchange === 'hyperliquid') {
+            const coin = token.hyperliquidCoin || token.baseAsset;
+            const data = await fetchHyperliquidKlines(coin, tf, 100);
             results[token.symbol] = data;
           } else {
             const data = await fetchBybitKlines(token.symbol, bybitInterval, 'spot', 100);
@@ -244,6 +288,10 @@ export const App: React.FC = () => {
       if (selectedToken.exchange === 'binance') {
         fetchBinanceTrades(selectedToken.symbol, 30).then((t) => t.length && setTrades(t));
         fetchBinanceOrderBook(selectedToken.symbol, 15).then((b) => b.bids.length && setOrderBook(b));
+      } else if (selectedToken.exchange === 'hyperliquid') {
+        const coin = selectedToken.hyperliquidCoin || selectedToken.baseAsset;
+        fetchHyperliquidTrades(coin, 30).then((t) => t.length && setTrades(t));
+        fetchHyperliquidOrderBook(coin, 15).then((b) => b.bids.length && setOrderBook(b));
       } else {
         fetchBybitTrades(selectedToken.symbol, 'spot', 30).then((t) => t.length && setTrades(t));
         fetchBybitOrderBook(selectedToken.symbol, 'spot', 15).then((b) => b.bids.length && setOrderBook(b));
@@ -258,6 +306,7 @@ export const App: React.FC = () => {
     const tfConfig = TIMEFRAMES.find((tf) => tf.value === timeframe) || TIMEFRAMES[3];
     const binanceSymbols = TOKENS.filter((t) => t.exchange === 'binance').map((t) => t.symbol);
     const bybitSymbols = TOKENS.filter((t) => t.exchange === 'bybit').map((t) => t.symbol);
+    const hlTokens = TOKENS.filter((t) => t.exchange === 'hyperliquid');
 
     // Binance WebSocket
     binanceWsRef.current = new BinanceWebSocketManager(
@@ -299,9 +348,31 @@ export const App: React.FC = () => {
     );
     bybitWsRef.current.connect(tfConfig.bybitInterval);
 
+    // Hyperliquid WebSocket
+    hyperliquidWsRef.current = new HyperliquidWebSocketManager(
+      hlTokens,
+      (updatedTicker) => {
+        setTickers((prev) => ({
+          ...prev,
+          [updatedTicker.symbol]: {
+            ...(prev[updatedTicker.symbol] || {}),
+            ...updatedTicker,
+          } as TickerData,
+        }));
+      },
+      (candle) => {
+        if (candle.symbol === selectedToken.symbol) {
+          setLatestCandle(candle);
+        }
+      }
+    );
+    const activeHlCoin = selectedToken.exchange === 'hyperliquid' ? (selectedToken.hyperliquidCoin || selectedToken.baseAsset) : undefined;
+    hyperliquidWsRef.current.connect(activeHlCoin, timeframe);
+
     return () => {
       binanceWsRef.current?.disconnect();
       bybitWsRef.current?.disconnect();
+      hyperliquidWsRef.current?.disconnect();
     };
   }, [selectedToken, timeframe]);
 
@@ -333,7 +404,8 @@ export const App: React.FC = () => {
         }}
         binanceConnected={binanceConnected}
         bybitConnected={bybitConnected}
-        activeExchangeCount={activePage === 'solana' ? 1 : 2}
+        hyperliquidConnected={hyperliquidConnected}
+        activeExchangeCount={activePage === 'solana' ? 1 : activePage === 'hyperliquid' ? 2 : 3}
         showRotation={showRotationScanner}
         onToggleRotation={() => setShowRotationScanner(!showRotationScanner)}
         showTable={showMarketTable}
@@ -448,7 +520,17 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* Rotation & Arbitrage Swap Scanner (Intra-Solana on Solana page, Intra-Global on Global page) */}
+        {/* Dedicated Hyperliquid Hub Section (Displayed ONLY on Hyperliquid page) */}
+        {activePage === 'hyperliquid' && (
+          <HyperliquidEcosystemSection
+            tokens={HYPERLIQUID_TOKENS}
+            tickers={tickers}
+            stats30dMap={stats30dMap}
+            onSelectToken={handleSelectToken}
+          />
+        )}
+
+        {/* Rotation & Arbitrage Swap Scanner (Intra-Solana on Solana page, Intra-Hyperliquid on Hyperliquid page, Intra-Global on Global page) */}
         {showRotationScanner && (
           <RotationSwapScanner
             tokens={currentTokens}
@@ -457,7 +539,7 @@ export const App: React.FC = () => {
           />
         )}
 
-        {/* 24-Hour Market Overview Table (5 tokens on Solana page, 7 tokens on Global page) */}
+        {/* 24-Hour Market Overview Table (5 tokens on Solana page, 5 tokens on Hyperliquid page, 7 tokens on Global page) */}
         {showMarketTable && (
           <MarketTable24h
             tokens={currentTokens}
@@ -472,18 +554,22 @@ export const App: React.FC = () => {
       <footer className="bg-[#0b0e14] border-t border-slate-800/80 px-4 py-2.5 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400" />
-          <span>Real-time feeds connected: Binance Spot REST/WS & Bybit Spot/V5 REST/WS</span>
+          <span>Real-time feeds connected: Binance Spot REST/WS, Bybit Spot/V5, and Hyperliquid L1 API/WS</span>
         </div>
         <div className="flex items-center gap-4 text-slate-400 flex-wrap">
           {activePage === 'solana' ? (
             <span className="text-emerald-400 font-semibold">
               Page Dédiée 100% Solana : SOL • JUP • MET • JTO • PUMP (Binance Feed)
             </span>
+          ) : activePage === 'hyperliquid' ? (
+            <span className="text-teal-400 font-semibold">
+              Page Dédiée 100% Hyperliquid : HYPE • PURR • HFUN • HYPER • JEFF (Hyperliquid L1 + Binance)
+            </span>
           ) : (
             <>
-              <span>Binance: Sui • SOL • Zcash • Pengu</span>
+              <span>Binance: Sui • SOL • Zcash • Pengu • HYPE • HYPER</span>
               <span>•</span>
-              <span>Bybit: Monad • Hyperliquid • Hyperlane</span>
+              <span>Bybit: Monad</span>
             </>
           )}
         </div>

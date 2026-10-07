@@ -234,6 +234,11 @@ export const MarketTable24h: React.FC<MarketTable24hProps> = ({
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
               <span>🪐 5 Tokens Solana Exclusifs</span>
             </div>
+          ) : tokens.every((t) => t.category === 'hyperliquid') ? (
+            <div className="px-3 py-1 rounded-md text-xs font-bold text-teal-300 flex items-center gap-1.5 bg-teal-950/40 border border-teal-500/30">
+              <span className="w-2 h-2 rounded-full bg-teal-400" />
+              <span>⚡ 5 Tokens Hyperliquid Exclusifs</span>
+            </div>
           ) : (
             <>
               <button
@@ -417,6 +422,8 @@ export const MarketTable24h: React.FC<MarketTable24hProps> = ({
                               className={`text-[9px] uppercase px-1.5 py-0.2 rounded font-semibold ${
                                 token.exchange === 'binance'
                                   ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                                  : token.exchange === 'hyperliquid'
+                                  ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
                                   : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
                               }`}
                             >
@@ -425,6 +432,11 @@ export const MarketTable24h: React.FC<MarketTable24hProps> = ({
                             {token.category === 'solana' && (
                               <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
                                 {token.ecosystemRole?.split('&')[0] || 'Solana'}
+                              </span>
+                            )}
+                            {token.category === 'hyperliquid' && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-teal-500/20 text-teal-300 border border-teal-500/30">
+                                {token.ecosystemRole?.split('&')[0] || 'Hyperliquid'}
                               </span>
                             )}
                           </div>

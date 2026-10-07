@@ -26,6 +26,9 @@ export const TokenStats: React.FC<TokenStatsProps> = ({ token, ticker }) => {
     if (token.exchange === 'binance') {
       return `https://www.binance.com/en/trade/${token.baseAsset}_${token.quoteAsset}?type=spot`;
     }
+    if (token.exchange === 'hyperliquid') {
+      return `https://app.hyperliquid.xyz/trade/${token.hyperliquidCoin || token.baseAsset}`;
+    }
     return `https://www.bybit.com/trade/spot/${token.baseAsset}/${token.quoteAsset}`;
   };
 
@@ -52,6 +55,8 @@ export const TokenStats: React.FC<TokenStatsProps> = ({ token, ticker }) => {
                   className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full ${
                     token.exchange === 'binance'
                       ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      : token.exchange === 'hyperliquid'
+                      ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
                       : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
                   }`}
                 >

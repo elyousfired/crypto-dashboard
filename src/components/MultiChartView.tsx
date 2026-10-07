@@ -202,6 +202,7 @@ export const MultiChartView: React.FC<MultiChartViewProps> = ({
   onSelectToken,
 }) => {
   const isPureSolanaPage = tokens.length > 0 && tokens.every((t) => t.category === 'solana');
+  const isPureHyperliquidPage = tokens.length > 0 && tokens.every((t) => t.category === 'hyperliquid');
 
   if (isPureSolanaPage) {
     return (
@@ -213,6 +214,33 @@ export const MultiChartView: React.FC<MultiChartViewProps> = ({
           </h2>
           <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
             100% Solana Exclusif
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+          {tokens.map((token) => (
+            <MiniChartCard
+              key={token.id}
+              token={token}
+              ticker={tickers[token.symbol]}
+              candles={multiCandles[token.symbol] || []}
+              onSelect={() => onSelectToken(token)}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (isPureHyperliquidPage) {
+    return (
+      <div className="p-4 lg:p-6 space-y-4">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-teal-400 shadow-sm shadow-teal-400/50" />
+          <h2 className="text-lg font-bold text-white m-0">
+            Multi-Charts : Écosystème Hyperliquid (5 Tokens)
+          </h2>
+          <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/30">
+            100% Hyperliquid Exclusif
           </span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">

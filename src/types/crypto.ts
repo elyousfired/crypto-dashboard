@@ -1,4 +1,4 @@
-export type Exchange = 'binance' | 'bybit';
+export type Exchange = 'binance' | 'bybit' | 'hyperliquid';
 
 export interface TokenConfig {
   id: string;
@@ -9,11 +9,12 @@ export interface TokenConfig {
   quoteAsset: string;
   exchange: Exchange;
   bybitCategory?: 'spot' | 'linear';
+  hyperliquidCoin?: string;
   precision: number;
   color: string;
   accentGradient: string;
   description: string;
-  category?: 'solana' | 'l1' | 'bybit-ecosystem' | 'defi' | 'meme' | 'privacy';
+  category?: 'solana' | 'hyperliquid' | 'l1' | 'bybit-ecosystem' | 'defi' | 'meme' | 'privacy';
   ecosystemRole?: string;
 }
 
@@ -62,7 +63,7 @@ export interface OrderBookData {
 export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
 export type ChartType = 'candlestick' | 'line' | 'area';
 export type ViewMode = 'focus' | 'grid' | 'compare';
-export type DashboardPage = 'solana' | 'global';
+export type DashboardPage = 'solana' | 'hyperliquid' | 'global';
 
 export interface Stats30d {
   high30d: number;

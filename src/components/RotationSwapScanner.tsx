@@ -108,6 +108,9 @@ export const RotationSwapScanner: React.FC<RotationSwapScannerProps> = ({
     if (token.exchange === 'binance') {
       return `https://www.binance.com/en/trade/${token.baseAsset}_${token.quoteAsset}?type=spot`;
     }
+    if (token.exchange === 'hyperliquid') {
+      return `https://app.hyperliquid.xyz/trade/${token.hyperliquidCoin || token.baseAsset}`;
+    }
     return `https://www.bybit.com/trade/spot/${token.baseAsset}/${token.quoteAsset}`;
   };
 
