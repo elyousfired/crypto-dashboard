@@ -11,13 +11,13 @@ import {
   type SyntheticPairConfig,
 } from '../config/crossPairs';
 import { SyntheticPairChart } from './SyntheticPairChart';
+import { BasketRotationSimulator } from './BasketRotationSimulator';
 import {
   ArrowLeftRight,
   TrendingUp,
   TrendingDown,
   Sparkles,
   Activity,
-  Calculator,
   Compass,
   Check,
 } from 'lucide-react';
@@ -46,9 +46,6 @@ export const CrossPairsPage: React.FC<CrossPairsPageProps> = ({
 
   // 3. Category filter for the 15 pre-configured cards gallery
   const [galleryCategory, setGalleryCategory] = useState<'all' | 'vs-sol' | 'vs-hype' | 'vs-sui' | 'cross-alts'>('all');
-
-  // 4. Rotation simulation amount
-  const [swapSimAmount, setSwapSimAmount] = useState<number>(1000);
 
   // Resolve base and quote tokens
   const baseToken = useMemo(() => {
@@ -342,77 +339,11 @@ export const CrossPairsPage: React.FC<CrossPairsPageProps> = ({
         />
       </div>
 
-      {/* 3. ROTATION & ARBITRAGE SIMULATOR */}
-      <div className="bg-[#0b0e14] border border-slate-800 p-5 rounded-2xl space-y-4 shadow-lg">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800/80 pb-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-              <Calculator className="w-4 h-4" />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-white m-0">
-                Simulateur de Rotation d'Arbitrage • {activePair.displaySymbol}
-              </h4>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Calcul du retour potentiel en échangeant directement entre {baseToken.baseAsset} et {quoteToken.baseAsset}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 bg-[#090d14] px-3 py-1.5 rounded-xl border border-slate-800">
-            <span className="text-xs text-slate-400 font-semibold">Montant Simulé:</span>
-            <div className="relative">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 font-mono">$</span>
-              <input
-                type="number"
-                value={swapSimAmount}
-                onChange={(e) => setSwapSimAmount(Math.max(10, Number(e.target.value)))}
-                className="w-24 bg-slate-900 border border-slate-700 rounded-lg pl-6 pr-2 py-1 text-xs text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-[#0e131d] p-3.5 rounded-xl border border-slate-800/80 flex flex-col justify-between">
-            <span className="text-[11px] text-slate-400">Position 24h du Ratio</span>
-            <div className="text-base font-bold font-mono text-white mt-1">
-              {rangePct > 70 ? (
-                <span className="text-emerald-400">🔥 Haut de Range 24h ({rangePct.toFixed(0)}%)</span>
-              ) : rangePct < 30 ? (
-                <span className="text-amber-400">❄️ Bas de Range 24h ({rangePct.toFixed(0)}%)</span>
-              ) : (
-                <span className="text-slate-300">⚖️ Zone Médiane ({rangePct.toFixed(0)}%)</span>
-              )}
-            </div>
-            <span className="text-[10px] text-slate-500 mt-1">
-              {rangePct > 70
-                ? `${baseToken.baseAsset} est cher par rapport à ${quoteToken.baseAsset} sur 24h`
-                : `${baseToken.baseAsset} offre un point d'entrée avantageux face à ${quoteToken.baseAsset}`}
-            </span>
-          </div>
-
-          <div className="bg-[#0e131d] p-3.5 rounded-xl border border-slate-800/80 flex flex-col justify-between">
-            <span className="text-[11px] text-slate-400">Écart vs Sommet 30 Jours</span>
-            <div className="text-base font-bold font-mono text-indigo-300 mt-1">
-              {synthetic30dStats.dropFromHighPct.toFixed(2)}%
-            </div>
-            <span className="text-[10px] text-slate-500 mt-1">
-              Potentiel de rebond si le ratio retrouve son plus haut du mois
-            </span>
-          </div>
-
-          <div className="bg-[#0e131d] p-3.5 rounded-xl border border-slate-800/80 flex flex-col justify-between">
-            <span className="text-[11px] text-slate-400">Gain Potentiel en Rebond Sommet</span>
-            <div className="text-base font-bold font-mono text-emerald-400 mt-1">
-              +${((swapSimAmount * Math.abs(synthetic30dStats.dropFromHighPct)) / 100).toFixed(2)} USD
-            </div>
-            <span className="text-[10px] text-emerald-400/80 mt-1">
-              Sur {swapSimAmount}$ investis au ratio actuel
-            </span>
-          </div>
-        </div>
-      </div>
+      {/* 3. SIMULATEUR DE PORTEFEUILLE & ROTATION BASKET ($10 PAR TOKEN) */}
+      <BasketRotationSimulator
+        tickers={tickers}
+        multiCandles={multiCandles}
+      />
 
       {/* 4. THE 15 PRE-CONFIGURED STRATEGIC PAIRS GALLERY */}
       <div className="space-y-4">
