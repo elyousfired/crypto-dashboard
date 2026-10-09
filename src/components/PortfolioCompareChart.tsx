@@ -90,7 +90,21 @@ export const PortfolioCompareChart: React.FC<PortfolioCompareChartProps> = ({ to
                 tf === '24h' ? 96 :
                 tf === '7d' ? 168 : 180;
 
-              candles = await fetchBinanceKlines(token.symbol, binanceInterval, limit);
+              try {
+                candles = await fetchBinanceKlines(token.symbol, binanceInterval, limit);
+              } catch {
+                candles = [];
+              }
+
+              // Fallback to Bybit if Binance returned empty
+              if (!candles || candles.length === 0) {
+                const bybitInterval =
+                  tf === '1h' ? '1' :
+                  tf === '4h' ? '5' :
+                  tf === '24h' ? '15' :
+                  tf === '7d' ? '60' : '240';
+                candles = await fetchBybitKlines(token.symbol, bybitInterval, 'spot', limit);
+              }
             } else if (token.exchange === 'bybit') {
               const bybitInterval =
                 tf === '1h' ? '1' :

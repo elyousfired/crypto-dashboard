@@ -74,62 +74,179 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     }
   }, [basketTokens]);
 
-  // 2. Custom Tickers for tokens added outside default config (e.g. BTC, ETH)
+  // 2. Custom Tickers for tokens added outside default config (e.g. BTC, ETH, WLD, DYDX, memes...)
   const [customTickers, setCustomTickers] = useState<Record<string, TickerData>>({});
+  const tickersRef = useRef(tickers);
+  tickersRef.current = tickers;
 
-  // Fetch ticker from Binance public API
-  const fetchPriceForSymbol = useCallback(async (symbol: string) => {
+  // Universal ticker fetcher: Binance -> Bybit -> DexScreener fallback
+  const fetchUniversalTicker = useCallback(async (token: TokenConfig): Promise<TickerData | null> => {
+    const rawSymbol = token.baseAsset || token.name || token.id;
+    const clean = rawSymbol.trim().toUpperCase().replace(/\/?USDT$/, '').replace(/\/?USDC$/, '');
+    const pairUsdt = `${clean}USDT`;
+
+    // 1. Try Binance
     try {
-      const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`);
+      const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${pairUsdt}`);
       if (res.ok) {
         const data = await res.json();
-        setCustomTickers((prev) => ({
-          ...prev,
-          [symbol]: {
-            symbol,
+        const lastPrice = parseFloat(data.lastPrice);
+        if (lastPrice > 0) {
+          return {
+            symbol: token.symbol,
             exchange: 'binance',
-            lastPrice: parseFloat(data.lastPrice),
-            priceChange: parseFloat(data.priceChange),
-            priceChangePercent: parseFloat(data.priceChangePercent),
-            highPrice: parseFloat(data.highPrice),
-            lowPrice: parseFloat(data.lowPrice),
-            volume: parseFloat(data.volume),
-            quoteVolume: parseFloat(data.quoteVolume),
+            lastPrice,
+            priceChange: parseFloat(data.priceChange || '0'),
+            priceChangePercent: parseFloat(data.priceChangePercent || '0'),
+            highPrice: parseFloat(data.highPrice || '0'),
+            lowPrice: parseFloat(data.lowPrice || '0'),
+            volume: parseFloat(data.volume || '0'),
+            quoteVolume: parseFloat(data.quoteVolume || '0'),
             timestamp: Date.now(),
-          },
-        }));
+          };
+        }
       }
-    } catch (err) {
-      console.warn(`Could not fetch Binance ticker for ${symbol}:`, err);
+    } catch {
+      // Binance failed, fallback to Bybit
     }
+
+    // 2. Try Bybit (High reliability for alts like WLD, DYDX, etc. without regional blocks)
+    try {
+      const res = await fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${pairUsdt}`);
+      if (res.ok) {
+        const data = await res.json();
+        const item = data.result?.list?.[0];
+        if (item && item.lastPrice) {
+          const lastPrice = parseFloat(item.lastPrice);
+          if (lastPrice > 0) {
+            const prevPrice = parseFloat(item.prevPrice24h || '0');
+            const pct = item.price24hPcnt ? parseFloat(item.price24hPcnt) * 100 : 0;
+            return {
+              symbol: token.symbol,
+              exchange: 'bybit',
+              lastPrice,
+              priceChange: prevPrice > 0 ? lastPrice - prevPrice : 0,
+              priceChangePercent: pct,
+              highPrice: parseFloat(item.highPrice24h || '0'),
+              lowPrice: parseFloat(item.lowPrice24h || '0'),
+              volume: parseFloat(item.volume24h || '0'),
+              quoteVolume: parseFloat(item.turnover24h || '0'),
+              timestamp: Date.now(),
+            };
+          }
+        }
+      }
+    } catch {
+      // Bybit failed, fallback to DexScreener
+    }
+
+    // 3. Try DexScreener (Decentralized tokens, Raydium, Hyperliquid, Memecoins)
+    try {
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/search?q=${clean}`);
+      if (res.ok) {
+        const data = await res.json();
+        const pairs = data.pairs || [];
+        const match = pairs.find((p: any) => p.baseToken?.symbol?.toUpperCase() === clean) || pairs[0];
+        if (match && match.priceUsd) {
+          const lastPrice = parseFloat(match.priceUsd);
+          if (lastPrice > 0) {
+            const change = match.priceChange?.h24 ?? 0;
+            return {
+              symbol: token.symbol,
+              exchange: 'dexscreener' as any,
+              lastPrice,
+              priceChange: 0,
+              priceChangePercent: change,
+              highPrice: lastPrice,
+              lowPrice: lastPrice,
+              volume: match.volume?.h24 ?? 0,
+              quoteVolume: match.volume?.h24 ?? 0,
+              timestamp: Date.now(),
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`Could not fetch live price for ${clean}:`, e);
+    }
+
+    return null;
   }, []);
 
-  // Keep custom tickers updated
+  // Keep custom tickers updated at a steady interval without flooding
   useEffect(() => {
-    const checkAndFetch = () => {
-      basketTokens.forEach((t) => {
-        if (!tickers[t.symbol]) {
-          fetchPriceForSymbol(t.symbol);
+    let isCancelled = false;
+
+    const checkAndFetch = async () => {
+      for (const t of basketTokens) {
+        if (isCancelled) break;
+        const sym = t.symbol?.toUpperCase();
+        const base = t.baseAsset?.toUpperCase();
+        // If already receiving live updates from parent WebSocket tickers, skip
+        const isCoveredByWs =
+          (tickersRef.current[t.symbol]?.lastPrice ?? 0) > 0 ||
+          (sym && (tickersRef.current[sym]?.lastPrice ?? 0) > 0) ||
+          (base && (tickersRef.current[base]?.lastPrice ?? 0) > 0);
+
+        if (!isCoveredByWs) {
+          const tick = await fetchUniversalTicker(t);
+          if (tick && !isCancelled) {
+            setCustomTickers((prev) => ({
+              ...prev,
+              [t.symbol]: tick,
+              [t.symbol.toUpperCase()]: tick,
+              [t.baseAsset.toUpperCase()]: tick,
+              [t.id.toLowerCase()]: tick,
+            }));
+          }
         }
-      });
+      }
     };
 
     checkAndFetch();
-    const interval = setInterval(checkAndFetch, 10000);
-    return () => clearInterval(interval);
-  }, [basketTokens, tickers, fetchPriceForSymbol]);
+    const interval = setInterval(checkAndFetch, 8000);
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [basketTokens, fetchUniversalTicker]);
 
-  // Helper to get real-time price
+  // Helper to get real-time price with exhaustive fallback matching
   const getLivePrice = useCallback(
     (token: TokenConfig): number => {
-      return tickers[token.symbol]?.lastPrice || customTickers[token.symbol]?.lastPrice || 0;
+      const sym = token.symbol?.toUpperCase();
+      const base = token.baseAsset?.toUpperCase();
+      const id = token.id?.toLowerCase();
+
+      return (
+        tickers[token.symbol]?.lastPrice ||
+        (sym ? tickers[sym]?.lastPrice : 0) ||
+        (base ? tickers[base]?.lastPrice : 0) ||
+        customTickers[token.symbol]?.lastPrice ||
+        (sym ? customTickers[sym]?.lastPrice : 0) ||
+        (base ? customTickers[base]?.lastPrice : 0) ||
+        (id ? customTickers[id]?.lastPrice : 0) ||
+        0
+      );
     },
     [tickers, customTickers]
   );
 
   const get24hChange = useCallback(
     (token: TokenConfig): number | undefined => {
-      return tickers[token.symbol]?.priceChangePercent ?? customTickers[token.symbol]?.priceChangePercent;
+      const sym = token.symbol?.toUpperCase();
+      const base = token.baseAsset?.toUpperCase();
+      const id = token.id?.toLowerCase();
+
+      return (
+        tickers[token.symbol]?.priceChangePercent ??
+        (sym ? tickers[sym]?.priceChangePercent : undefined) ??
+        (base ? tickers[base]?.priceChangePercent : undefined) ??
+        customTickers[token.symbol]?.priceChangePercent ??
+        (sym ? customTickers[sym]?.priceChangePercent : undefined) ??
+        (base ? customTickers[base]?.priceChangePercent : undefined) ??
+        (id ? customTickers[id]?.priceChangePercent : undefined)
+      );
     },
     [tickers, customTickers]
   );
@@ -355,7 +472,17 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     setBasketTokens((prev) => [...prev, newToken]);
     setNewSymbolInput('');
     setShowAddTokenBar(false);
-    fetchPriceForSymbol(newToken.symbol);
+    fetchUniversalTicker(newToken).then((data) => {
+      if (data) {
+        setCustomTickers((prev) => ({
+          ...prev,
+          [newToken.symbol]: data,
+          [newToken.symbol.toUpperCase()]: data,
+          [newToken.baseAsset.toUpperCase()]: data,
+          [newToken.id.toLowerCase()]: data,
+        }));
+      }
+    });
   };
 
   // Remove Token from Basket
