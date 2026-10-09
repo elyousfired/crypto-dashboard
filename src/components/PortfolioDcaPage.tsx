@@ -8,18 +8,19 @@ interface PortfolioDcaPageProps {
   tickers: Record<string, TickerData>;
 }
 
-interface SimpleBuyEntry {
+export interface SimpleTransaction {
   id: string;
-  amountUsd: number; // Chhal chriti b dollar (ex: 10$)
-  buyPrice: number;  // F achmn price chriti (ex: 118$)
+  type: 'buy' | 'sell';
+  amountUsd: number; // Montant en dollar
+  price: number;     // Prix d'achat ou de vente
   timestamp: number;
 }
 
-const STORAGE_KEY = 'apex_simple_dca_portfolio_v3';
+const STORAGE_KEY = 'apex_simple_dca_portfolio_v4';
 
 export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) => {
-  // Store entries per token ID: { sol: [...], zec: [...], ... }
-  const [entriesMap, setEntriesMap] = useState<Record<string, SimpleBuyEntry[]>>(() => {
+  // Store transactions per token ID: { sol: [...], zec: [...], ... }
+  const [entriesMap, setEntriesMap] = useState<Record<string, SimpleTransaction[]>>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) return JSON.parse(saved);
@@ -46,10 +47,20 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     }
   }, [entriesMap]);
 
+  // Form mode state per token: 'buy' | 'sell'
+  const [formModes, setFormModes] = useState<Record<string, 'buy' | 'sell'>>({});
+
   // Form inputs state per token: { [tokenId]: { amount: string, price: string } }
   const [inputs, setInputs] = useState<Record<string, { amount: string; price: string }>>({});
 
-  // Helper to get input values for a token
+  const getMode = (tokenId: string): 'buy' | 'sell' => {
+    return formModes[tokenId] || 'buy';
+  };
+
+  const setMode = (tokenId: string, mode: 'buy' | 'sell') => {
+    setFormModes((prev) => ({ ...prev, [tokenId]: mode }));
+  };
+
   const getInput = (tokenId: string) => {
     return inputs[tokenId] || { amount: '10', price: '' };
   };
@@ -64,8 +75,9 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     }));
   };
 
-  // Add an entry for a specific token
+  // Add an entry (Buy or Sell) for a specific token
   const handleAddEntry = (tokenId: string) => {
+    const mode = getMode(tokenId);
     const currentInput = getInput(tokenId);
     const amount = parseFloat(currentInput.amount);
     let price = parseFloat(currentInput.price);
@@ -78,25 +90,26 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     }
 
     if (isNaN(amount) || amount <= 0) {
-      alert("Kteb ch7al chriti b dollar (ex: 10)");
+      alert("Kteb ch7al b dollar (ex: 10)");
       return;
     }
 
     if (isNaN(price) || price <= 0) {
-      alert("Kteb l-prix li chriti bih (ex: 118)");
+      alert("Kteb l-prix (ex: 118)");
       return;
     }
 
-    const newEntry: SimpleBuyEntry = {
-      id: `entry-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    const newTx: SimpleTransaction = {
+      id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      type: mode,
       amountUsd: amount,
-      buyPrice: price,
+      price,
       timestamp: Date.now(),
     };
 
     setEntriesMap((prev) => ({
       ...prev,
-      [tokenId]: [...(prev[tokenId] || []), newEntry],
+      [tokenId]: [...(prev[tokenId] || []), newTx],
     }));
 
     // Reset input price
@@ -113,8 +126,8 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
   // Reset all
   const handleResetAll = () => {
-    if (window.confirm("Bghiti t-mseh ga3 les entrées?")) {
-      const emptyState: Record<string, SimpleBuyEntry[]> = {
+    if (window.confirm("Bghiti t-mseh ga3 les transactions?")) {
+      const emptyState: Record<string, SimpleTransaction[]> = {
         sol: [],
         sui: [],
         zec: [],
@@ -127,56 +140,82 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     }
   };
 
-  // 1-Click: Charger un exemple simple ($10 f kolla token)
+  // 1-Click: Charger un exemple simple avec Buy & Sell
   const handleLoadSimpleExample = () => {
-    const example: Record<string, SimpleBuyEntry[]> = {};
+    const example: Record<string, SimpleTransaction[]> = {};
     CROSS_TOKENS.forEach((t) => {
       const live = tickers[t.symbol]?.lastPrice || 10;
-      // 1 achat f dip chwiya rkhiss, 1 achat f prix actuel
+      // 1 achat bas, 1 achat renfort, 1 vente partielle avec profit
       example[t.id] = [
-        { id: `ex-${t.id}-1`, amountUsd: 10, buyPrice: live * 0.96, timestamp: Date.now() - 86400000 },
-        { id: `ex-${t.id}-2`, amountUsd: 10, buyPrice: live * 1.02, timestamp: Date.now() },
+        { id: `ex-${t.id}-1`, type: 'buy', amountUsd: 15, price: live * 0.94, timestamp: Date.now() - 172800000 },
+        { id: `ex-${t.id}-2`, type: 'buy', amountUsd: 10, price: live * 0.98, timestamp: Date.now() - 86400000 },
+        { id: `ex-${t.id}-3`, type: 'sell', amountUsd: 8, price: live * 1.05, timestamp: Date.now() - 3600000 },
       ];
     });
     setEntriesMap(example);
   };
 
-  // Calculate statistics for each token
+  // Calculate statistics for each token taking both BUY and SELL into account
   const tokenStats = useMemo(() => {
     return CROSS_TOKENS.map((token) => {
       const tokenEntries = entriesMap[token.id] || [];
       const livePrice = tickers[token.symbol]?.lastPrice || 0;
 
-      let totalInvested = 0;
-      let totalCoins = 0;
+      let coins = 0;
+      let invested = 0; // Coût de revient de la position restante
+      let totalBoughtUsd = 0;
+      let totalSoldUsd = 0;
+      let realizedProfit = 0;
+      let avgBuyPrice = 0;
 
-      tokenEntries.forEach((e) => {
-        totalInvested += e.amountUsd;
-        if (e.buyPrice > 0) {
-          totalCoins += e.amountUsd / e.buyPrice;
+      // Trier chronologiquement
+      const sortedTxs = [...tokenEntries].sort((a, b) => a.timestamp - b.timestamp);
+
+      sortedTxs.forEach((tx) => {
+        if (tx.type === 'buy') {
+          const q = tx.price > 0 ? tx.amountUsd / tx.price : 0;
+          coins += q;
+          invested += tx.amountUsd;
+          totalBoughtUsd += tx.amountUsd;
+          avgBuyPrice = coins > 0 ? invested / coins : 0;
+        } else if (tx.type === 'sell') {
+          const q = tx.price > 0 ? tx.amountUsd / tx.price : 0;
+          totalSoldUsd += tx.amountUsd;
+          const costOfSold = q * avgBuyPrice;
+          const profit = tx.amountUsd - costOfSold;
+          realizedProfit += profit;
+          coins = Math.max(0, coins - q);
+          invested = Math.max(0, coins * avgBuyPrice);
         }
       });
 
-      // Average buy price = total invested / total coins
-      const avgPrice = totalCoins > 0 ? totalInvested / totalCoins : 0;
+      const currentValue = coins * livePrice;
+      const unrealizedPnl = currentValue - invested;
+      const totalPnlUsd = realizedProfit + unrealizedPnl;
 
-      // PnL percentage vs average price: ((live - avg) / avg) * 100
-      const pnlPct = avgPrice > 0 && livePrice > 0 ? ((livePrice - avgPrice) / avgPrice) * 100 : 0;
-      const currentValue = totalCoins * livePrice;
-      const pnlUsd = currentValue - totalInvested;
-      const isProfit = pnlPct >= 0;
+      // PnL % sur la position restante par rapport au prix moyen
+      const pnlPct = avgBuyPrice > 0 && livePrice > 0
+        ? ((livePrice - avgBuyPrice) / avgBuyPrice) * 100
+        : (totalBoughtUsd > 0 ? (totalPnlUsd / totalBoughtUsd) * 100 : 0);
+
+      const isProfit = totalPnlUsd >= 0;
 
       return {
         token,
         entries: tokenEntries,
         hasEntries: tokenEntries.length > 0,
-        totalInvested,
-        totalCoins,
-        avgPrice,
+        coins,
+        invested,
+        totalBoughtUsd,
+        totalSoldUsd,
+        realizedProfit,
+        avgBuyPrice,
+        avgPrice: avgBuyPrice,
         livePrice,
         currentValue,
+        unrealizedPnl,
+        totalPnlUsd,
         pnlPct,
-        pnlUsd,
         isProfit,
       };
     });
@@ -186,20 +225,23 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
   const totalStats = useMemo(() => {
     let totalInvested = 0;
     let totalValue = 0;
+    let totalRealized = 0;
 
     tokenStats.forEach((s) => {
       if (s.hasEntries) {
-        totalInvested += s.totalInvested;
+        totalInvested += s.invested;
         totalValue += s.currentValue;
+        totalRealized += s.realizedProfit;
       }
     });
 
-    const netPnlUsd = totalValue - totalInvested;
+    const netPnlUsd = (totalValue - totalInvested) + totalRealized;
     const netPnlPct = totalInvested > 0 ? (netPnlUsd / totalInvested) * 100 : 0;
 
     return {
       totalInvested,
       totalValue,
+      totalRealized,
       netPnlUsd,
       netPnlPct,
       isProfit: netPnlUsd >= 0,
@@ -212,16 +254,16 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
       <div className="bg-[#0e131d] border border-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
         <div>
           <h2 className="text-xl font-black text-white m-0 flex items-center gap-2">
-            <span>📊 Suivi Simple dyal les Achats & Rba7</span>
+            <span>📊 Suivi Simple des Achats (Buy) & Ventes (Sell)</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Kteb ch7al chriti w f achmn prix, w kaywerik direct: <strong>SOL +X%</strong> wla <strong>ZEC -X%</strong> par rapport l l-prix moyen!
+            Kteb les achates w les ventes dyalk, w l-application kat-7seb l-prix moyen w r-rba7 direct: <strong>SOL +X%</strong> wla <strong>ZEC -X%</strong>!
           </p>
         </div>
 
         {/* Global Result Pill */}
         <div className="flex items-center gap-3">
-          {totalStats.totalInvested > 0 ? (
+          {totalStats.totalInvested > 0 || totalStats.totalRealized !== 0 ? (
             <div className={`px-4 py-2 rounded-xl border flex items-center gap-2 font-mono ${
               totalStats.isProfit
                 ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
@@ -240,11 +282,11 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
               onClick={handleLoadSimpleExample}
               className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 text-xs font-bold transition cursor-pointer"
             >
-              ✨ Charger Exemple ($10)
+              ✨ Charger Exemple (Buy & Sell)
             </button>
           )}
 
-          {totalStats.totalInvested > 0 && (
+          {(totalStats.totalInvested > 0 || totalStats.totalRealized !== 0) && (
             <button
               onClick={handleResetAll}
               className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 border border-slate-700 transition cursor-pointer"
@@ -260,6 +302,7 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {tokenStats.map((item) => {
           const inputVal = getInput(item.token.id);
+          const currentMode = getMode(item.token.id);
 
           return (
             <div
@@ -298,12 +341,12 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
                       <span>{item.isProfit ? '+' : ''}{item.pnlPct.toFixed(1)}%</span>
                     </div>
                     <div className="text-[10px] font-bold">
-                      {item.isProfit ? '+' : ''}${item.pnlUsd.toFixed(2)}
+                      {item.isProfit ? '+' : ''}${item.totalPnlUsd.toFixed(2)} Total
                     </div>
                   </div>
                 ) : (
                   <span className="text-xs text-slate-500 font-mono italic">
-                    Ma zedti 7ta achat
+                    Ma zedti 7ta opération
                   </span>
                 )}
               </div>
@@ -318,27 +361,57 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
                     </strong>
                   </div>
                   <div className="text-center">
-                    <span className="text-[10px] text-slate-500 block uppercase">Total Investi</span>
-                    <strong className="text-slate-200">${item.totalInvested.toFixed(2)}</strong>
+                    <span className="text-[10px] text-slate-500 block uppercase">Jetons Restants</span>
+                    <strong className="text-slate-200">
+                      {item.coins < 1 ? item.coins.toFixed(4) : item.coins.toFixed(2)} ({item.invested.toFixed(1)}$)
+                    </strong>
                   </div>
                   <div className="text-right">
-                    <span className="text-[10px] text-slate-500 block uppercase">Jetons (Pièces)</span>
-                    <strong className="text-slate-200">
-                      {item.totalCoins < 1 ? item.totalCoins.toFixed(4) : item.totalCoins.toFixed(2)}
+                    <span className="text-[10px] text-slate-500 block uppercase">Profit Vendu (Cash)</span>
+                    <strong className={item.realizedProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                      {item.realizedProfit >= 0 ? '+' : ''}${item.realizedProfit.toFixed(2)}
                     </strong>
                   </div>
                 </div>
               )}
 
-              {/* Ultra-Simple Inline Add Form: [Chhal chriti $] [F achmn prix $] [+] */}
-              <div className="pt-1">
+              {/* Ultra-Simple Form with Buy / Sell Toggle */}
+              <div className="pt-1 space-y-2">
+                {/* BUY / SELL Switcher */}
+                <div className="flex items-center gap-1 bg-[#090d14] p-0.5 rounded-lg border border-slate-800 w-fit">
+                  <button
+                    type="button"
+                    onClick={() => setMode(item.token.id, 'buy')}
+                    className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
+                      currentMode === 'buy'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span>🟢 Achat (Buy)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMode(item.token.id, 'sell')}
+                    className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
+                      currentMode === 'sell'
+                        ? 'bg-rose-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <span>🔴 Vente (Sell)</span>
+                  </button>
+                </div>
+
+                {/* Input Boxes + Add Button */}
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
                     <span className="absolute left-2.5 top-2 text-xs text-slate-500 font-mono">$</span>
                     <input
                       type="number"
                       step="any"
-                      placeholder="Chhal ($)"
+                      placeholder={currentMode === 'buy' ? "Montant d'achat ($)" : "Montant vendu ($)"}
                       value={inputVal.amount}
                       onChange={(e) => updateInput(item.token.id, 'amount', e.target.value)}
                       className="w-full bg-[#090d14] border border-slate-800 rounded-xl pl-6 pr-2 py-1.5 text-xs font-mono text-white placeholder-slate-600 focus:border-indigo-500 focus:outline-none"
@@ -350,7 +423,7 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
                     <input
                       type="number"
                       step="any"
-                      placeholder={`Prix d'achat (${item.livePrice < 1 ? item.livePrice.toFixed(2) : item.livePrice.toFixed(1)})`}
+                      placeholder={currentMode === 'buy' ? "Prix d'achat" : "Prix de vente"}
                       value={inputVal.price}
                       onChange={(e) => updateInput(item.token.id, 'price', e.target.value)}
                       className="w-full bg-[#090d14] border border-slate-800 rounded-xl pl-6 pr-2 py-1.5 text-xs font-mono text-white placeholder-slate-600 focus:border-indigo-500 focus:outline-none"
@@ -359,10 +432,14 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
                   <button
                     onClick={() => handleAddEntry(item.token.id)}
-                    className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1 transition cursor-pointer shrink-0 shadow-md shadow-indigo-950/50"
+                    className={`px-3.5 py-1.5 rounded-xl text-white font-bold text-xs flex items-center gap-1 transition cursor-pointer shrink-0 shadow-md ${
+                      currentMode === 'buy'
+                        ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-950/50'
+                        : 'bg-rose-600 hover:bg-rose-500 shadow-rose-950/50'
+                    }`}
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Zid</span>
+                    <span>{currentMode === 'buy' ? 'Zid Chira' : 'Zid Bay3'}</span>
                   </button>
                 </div>
 
@@ -371,7 +448,7 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
                   <button
                     type="button"
                     onClick={() => updateInput(item.token.id, 'price', item.livePrice.toString())}
-                    className="text-[10px] text-slate-500 hover:text-indigo-400 mt-1 flex items-center gap-1 cursor-pointer transition"
+                    className="text-[10px] text-slate-500 hover:text-indigo-400 flex items-center gap-1 cursor-pointer transition"
                   >
                     <Zap className="w-2.5 h-2.5 text-amber-400" />
                     <span>Cliki bach t3mmer b le prix actuel (${item.livePrice < 1 ? item.livePrice.toFixed(4) : item.livePrice.toFixed(2)})</span>
@@ -379,42 +456,40 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
                 )}
               </div>
 
-              {/* List of past purchases for this token (with small delete 'x') */}
+              {/* List of past transactions (Both BUY and SELL with clear badges) */}
               {item.entries.length > 0 && (
                 <div className="pt-2 border-t border-slate-800/60">
                   <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1.5">
-                    Achats li derti ({item.entries.length}) :
+                    Historique ({item.entries.length} opérations) :
                   </span>
-                  <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
+                  <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
                     {item.entries.map((entry, idx) => {
-                      const entryGainPct = entry.buyPrice > 0 && item.livePrice > 0
-                        ? ((item.livePrice - entry.buyPrice) / entry.buyPrice) * 100
-                        : 0;
+                      const isBuy = entry.type === 'buy';
 
                       return (
                         <div
                           key={entry.id}
                           className="bg-[#090d14] px-2.5 py-1 rounded-lg border border-slate-800 flex items-center justify-between text-[11px] font-mono text-slate-300"
                         >
-                          <div>
-                            <span>#{idx + 1}</span>
-                            <span className="mx-1.5 text-slate-600">•</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-slate-500 font-mono">#{idx + 1}</span>
+                            <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                              isBuy
+                                ? 'bg-emerald-500/20 text-emerald-300'
+                                : 'bg-rose-500/20 text-rose-300'
+                            }`}>
+                              {isBuy ? '🟢 BUY' : '🔴 SELL'}
+                            </span>
                             <strong className="text-white">${entry.amountUsd.toFixed(1)}</strong>
-                            <span className="text-slate-400 mx-1">à</span>
-                            <span className="text-indigo-300">${entry.buyPrice < 1 ? entry.buyPrice.toFixed(4) : entry.buyPrice.toFixed(2)}</span>
+                            <span className="text-slate-500">à</span>
+                            <span className="text-indigo-300">${entry.price < 1 ? entry.price.toFixed(4) : entry.price.toFixed(2)}</span>
                           </div>
 
                           <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold ${
-                              entryGainPct >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                            }`}>
-                              {entryGainPct >= 0 ? '+' : ''}{entryGainPct.toFixed(1)}%
-                            </span>
-
                             <button
                               onClick={() => handleDeleteEntry(item.token.id, entry.id)}
                               className="text-slate-500 hover:text-rose-400 p-0.5 transition cursor-pointer"
-                              title="Mseh had l'achat"
+                              title="Mseh had l'opération"
                             >
                               ✕
                             </button>
