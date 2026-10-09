@@ -11,6 +11,9 @@ import {
   History,
   Layers,
   Award,
+  HelpCircle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 interface BasketRotationSimulatorProps {
@@ -203,6 +206,19 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
       spread,
     };
   }, [tickers]);
+
+  // Clean formatters to avoid "+-X%" or "+$-X"
+  const formatUsd = (val: number, showSign: boolean = true) => {
+    const sign = val > 0.0001 ? '+' : val < -0.0001 ? '-' : '';
+    const formatted = Math.abs(val).toFixed(2);
+    return showSign && sign ? `${sign}$${formatted}` : `$${formatted}`;
+  };
+
+  const formatPct = (val: number, showSign: boolean = true) => {
+    return `${showSign && val > 0.0001 ? '+' : ''}${val.toFixed(2)}%`;
+  };
+
+  const [showExplanation, setShowExplanation] = useState<boolean>(true);
 
   // Execute Live Optimal Swap
   const handleExecuteLiveSwap = () => {
@@ -444,6 +460,61 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
         </div>
       </div>
 
+      {/* Guide Banner for User Explanation */}
+      <div className="bg-gradient-to-r from-indigo-950/40 via-purple-950/20 to-slate-900 border border-indigo-500/30 rounded-2xl p-4 transition">
+        <div className="flex items-center justify-between cursor-pointer" onClick={() => setShowExplanation(!showExplanation)}>
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+              <HelpCircle className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-sm font-bold text-white">💡 Kifach kay-khdem had le Simulateur ? (Fham l-fikra f 30 taniya)</span>
+              <span className="text-xs text-slate-400 block sm:inline sm:ml-2">
+                {showExplanation ? 'Click bach tsedd l-guide' : 'Click bach tchof char7 b Darija'}
+              </span>
+            </div>
+          </div>
+          <button className="text-slate-400 hover:text-white p-1">
+            {showExplanation ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+        </div>
+
+        {showExplanation && (
+          <div className="mt-3 pt-3 border-t border-slate-800/80 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-300">
+            <div className="bg-[#090d14]/70 p-3 rounded-xl border border-slate-800">
+              <div className="text-indigo-400 font-bold mb-1 flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-indigo-500/20 text-center leading-4 text-[10px]">1</span>
+                <span>$10 f kolla token ($60 Total)</span>
+              </div>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                Bditi b 6 d les cryptos (SOL, SUI, ZEC, MON, HYPE, PENGU). Kolla wa7ed chriti fih $10.
+              </p>
+            </div>
+
+            <div className="bg-[#090d14]/70 p-3 rounded-xl border border-slate-800">
+              <div className="text-emerald-400 font-bold mb-1 flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-center leading-4 text-[10px]">2</span>
+                <span>L-Far9 bin Stratégie A w B</span>
+              </div>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                <strong className="text-slate-200">Hold (A):</strong> Ma kat-mess walou.<br />
+                <strong className="text-indigo-300">Rotation (B):</strong> Kat-bi3 chwiya mn li tla3 (ex: HYPE) w kat-chri li hbat (ex: ZEC) bach tkteff l-7abbat (Unités) dyalo!
+              </p>
+            </div>
+
+            <div className="bg-[#090d14]/70 p-3 rounded-xl border border-slate-800">
+              <div className="text-amber-400 font-bold mb-1 flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-amber-500/20 text-center leading-4 text-[10px]">3</span>
+                <span>3lach Alpha = $0.00 f l-bdya ?</span>
+              </div>
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                Mnin kat-swapi f nafs d9i9a, l-capital kay-b9a howa howa. L-fa2ida katban mnin ZEC kay-3awd ytla3! Cliki 3la <strong className="text-purple-300">"Simuler l'Historique"</strong> bach tchof r-rbah d 100 bougie!
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* 2. BIG KPI SUMMARY CARDS: BUY & HOLD vs BASKET ROTATION */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Initial Invested */}
@@ -475,12 +546,11 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
                 portfolioStats.holdPnlPct >= 0 ? 'text-emerald-400' : 'text-rose-400'
               }`}
             >
-              {portfolioStats.holdPnlPct >= 0 ? '+' : ''}
-              {portfolioStats.holdPnlPct.toFixed(2)}%
+              {formatPct(portfolioStats.holdPnlPct)}
             </span>
           </div>
           <div className="text-[11px] text-slate-500 mt-1">
-            PnL Passif : {portfolioStats.holdPnlUsd >= 0 ? '+' : ''}${portfolioStats.holdPnlUsd.toFixed(2)} USD
+            PnL Passif : <span className={portfolioStats.holdPnlUsd >= 0 ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>{formatUsd(portfolioStats.holdPnlUsd)}</span> USD
           </div>
         </div>
 
@@ -497,13 +567,12 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
           </div>
           <div className="text-2xl lg:text-3xl font-black font-mono text-emerald-400 mt-2 flex items-baseline gap-2">
             <span>${portfolioStats.rotationValueUsd.toFixed(2)}</span>
-            <span className="text-xs font-bold text-emerald-400">
-              {portfolioStats.rotationPnlPct >= 0 ? '+' : ''}
-              {portfolioStats.rotationPnlPct.toFixed(2)}%
+            <span className={`text-xs font-bold ${portfolioStats.rotationPnlPct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              {formatPct(portfolioStats.rotationPnlPct)}
             </span>
           </div>
           <div className="text-[11px] text-slate-300 mt-1 font-semibold flex items-center justify-between">
-            <span>PnL Total : +${portfolioStats.rotationPnlUsd.toFixed(2)}</span>
+            <span>PnL Total : <span className={portfolioStats.rotationPnlUsd >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{formatUsd(portfolioStats.rotationPnlUsd)}</span></span>
             <span className="text-amber-400 font-mono">Compounding Actif</span>
           </div>
         </div>
@@ -521,16 +590,18 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
           </div>
           <div className="text-2xl font-black font-mono text-emerald-300 mt-2 flex items-baseline gap-2">
             <span>
-              {portfolioStats.alphaUsd >= 0 ? '+' : ''}${portfolioStats.alphaUsd.toFixed(2)}
+              {formatUsd(portfolioStats.alphaUsd)}
             </span>
-            <span className="text-xs font-bold text-emerald-400">
-              ({portfolioStats.alphaPct >= 0 ? '+' : ''}{portfolioStats.alphaPct.toFixed(2)}% vs Hold)
+            <span className={`text-xs font-bold ${portfolioStats.alphaPct >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+              ({formatPct(portfolioStats.alphaPct)} vs Hold)
             </span>
           </div>
           <div className="text-[11px] text-emerald-400/90 mt-1">
-            {portfolioStats.alphaUsd >= 0
-              ? `Surperformance de +$${portfolioStats.alphaUsd.toFixed(2)} grâce aux rotations !`
-              : 'En attente de rebond des dips accumulés'}
+            {portfolioStats.alphaUsd > 0.01
+              ? `Surperformance de ${formatUsd(portfolioStats.alphaUsd)} grâce aux rotations !`
+              : portfolioStats.alphaUsd < -0.01
+              ? `Différence de ${formatUsd(portfolioStats.alphaUsd)} (En attente du rebond des dips)`
+              : 'Cliquez sur "Simuler l\'Historique" pour voir le gain sur 100 bougies !'}
           </div>
         </div>
       </div>
@@ -547,15 +618,15 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
               <div>
                 <div className="text-xs font-bold text-white flex items-center gap-2">
                   <span>Opportunité Live Détectée :</span>
-                  <span className="text-emerald-400">{bestLiveOpportunity.fromToken.baseAsset} (+{bestLiveOpportunity.fromChange.toFixed(1)}%)</span>
+                  <span className="text-emerald-400">{bestLiveOpportunity.fromToken.baseAsset} ({formatPct(bestLiveOpportunity.fromChange)})</span>
                   <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="text-rose-400">{bestLiveOpportunity.toToken.baseAsset} ({bestLiveOpportunity.toChange.toFixed(1)}%)</span>
-                  <span className="text-[10px] font-mono bg-indigo-500/20 text-indigo-300 px-1.5 py-0.2 rounded font-bold">
+                  <span className="text-rose-400">{bestLiveOpportunity.toToken.baseAsset} ({formatPct(bestLiveOpportunity.toChange)})</span>
+                  <span className="text-[10px] font-mono bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded font-bold">
                     Écart : {bestLiveOpportunity.spread.toFixed(1)}%
                   </span>
                 </div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  Vendre {rebalancePortionPct}% des profits de {bestLiveOpportunity.fromToken.baseAsset} pour accumuler {bestLiveOpportunity.toToken.baseAsset} à rabais.
+                  Vendre {rebalancePortionPct}% de {bestLiveOpportunity.fromToken.baseAsset} pour accumuler {bestLiveOpportunity.toToken.baseAsset} à rabais.
                 </div>
               </div>
             </div>
