@@ -1,10 +1,19 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type { TickerData, TokenConfig } from '../types/crypto';
 import { CROSS_TOKENS } from '../config/crossPairs';
 import { TOKENS } from '../config/tokens';
-import { Plus, Trash2, ChevronDown, X, Repeat } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, X, Repeat, Download, Upload, Cloud, Check, LogOut } from 'lucide-react';
 import { AccumulationCurvesSection } from './AccumulationCurvesSection';
 import { PortfolioCompareChart } from './PortfolioCompareChart';
+import {
+  initFirebase,
+  loginWithGoogle,
+  logoutGoogle,
+  onAuthChange,
+  savePortfolioToCloud,
+  loadPortfolioFromCloud,
+  saveFirebaseConfig,
+} from '../services/firebaseService';
 
 interface PortfolioDcaPageProps {
   tickers: Record<string, TickerData>;
@@ -168,6 +177,130 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
   // Add Token input state
   const [showAddTokenBar, setShowAddTokenBar] = useState<boolean>(false);
   const [newSymbolInput, setNewSymbolInput] = useState<string>('');
+
+  // Cloud Sync & Backup States
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [cloudSynced, setCloudSynced] = useState<boolean>(false);
+  const [showCloudModal, setShowCloudModal] = useState<boolean>(false);
+  const [firebaseCfgInput, setFirebaseCfgInput] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Monitor Google Authentication state
+  useEffect(() => {
+    const unsub = onAuthChange(async (u) => {
+      setCurrentUser(u);
+      if (u) {
+        const cloudData = await loadPortfolioFromCloud(u.uid);
+        if (cloudData && cloudData.basketTokens && cloudData.entriesMap) {
+          setBasketTokens(cloudData.basketTokens);
+          setEntriesMap(cloudData.entriesMap);
+        } else {
+          await savePortfolioToCloud(u.uid, { basketTokens, entriesMap });
+        }
+        setCloudSynced(true);
+      } else {
+        setCloudSynced(false);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Save to cloud on any portfolio change if user is logged in
+  useEffect(() => {
+    if (currentUser) {
+      savePortfolioToCloud(currentUser.uid, { basketTokens, entriesMap });
+      setCloudSynced(true);
+    }
+  }, [basketTokens, entriesMap, currentUser]);
+
+  // Export JSON backup file
+  const handleExportBackup = () => {
+    const backupData = {
+      version: 1,
+      appName: 'Apex Crypto Dashboard',
+      exportedAt: new Date().toISOString(),
+      basketTokens,
+      entriesMap,
+    };
+    const jsonStr = JSON.stringify(backupData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `apex_portfolio_backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Import JSON backup file
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result as string);
+        if (parsed.basketTokens && parsed.entriesMap) {
+          setBasketTokens(parsed.basketTokens);
+          setEntriesMap(parsed.entriesMap);
+          if (currentUser) {
+            savePortfolioToCloud(currentUser.uid, {
+              basketTokens: parsed.basketTokens,
+              entriesMap: parsed.entriesMap,
+            });
+          }
+          alert(`Sauvegarde restaurée avec succès (${parsed.basketTokens.length} tokens)!`);
+        } else {
+          alert('Fichier JSON invalide (format incompatible).');
+        }
+      } catch (err) {
+        alert('Erreur lors de la lecture du fichier JSON.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  // Google Login action
+  const handleGoogleSignIn = async () => {
+    try {
+      const u = await loginWithGoogle();
+      if (u) {
+        setCurrentUser(u);
+        alert(`Connecté avec succès : ${u.email}`);
+        setShowCloudModal(false);
+      }
+    } catch (err: any) {
+      alert(`Erreur de connexion : ${err?.message || 'Configuration requise'}`);
+    }
+  };
+
+  // Google Logout action
+  const handleGoogleSignOut = async () => {
+    if (window.confirm('Voulez-vous vous déconnecter de Google Cloud ?')) {
+      await logoutGoogle();
+      setCurrentUser(null);
+      setCloudSynced(false);
+    }
+  };
+
+  // Save manual Firebase config if needed
+  const handleSaveFirebaseConfig = () => {
+    try {
+      const parsed = JSON.parse(firebaseCfgInput.trim());
+      if (parsed.apiKey && parsed.projectId) {
+        saveFirebaseConfig(parsed);
+        initFirebase(parsed);
+        alert('Configuration Firebase enregistrée avec succès! Vous pouvez maintenant vous connecter.');
+        setFirebaseCfgInput('');
+      } else {
+        alert('Format invalide: apiKey et projectId sont requis.');
+      }
+    } catch {
+      alert('Veuillez coller un objet JSON valide pour la configuration Firebase.');
+    }
+  };
 
   const getMode = (tokenId: string): 'buy' | 'sell' => {
     return formModes[tokenId] || 'buy';
@@ -599,6 +732,41 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
               <Plus className="h-4 w-4" />
               Ajouter un actif
             </button>
+            <button
+              onClick={handleExportBackup}
+              className={`${btnSecondary} h-10`}
+              title="Télécharger une copie de sauvegarde JSON complète de votre portefeuille"
+            >
+              <Download className="h-4 w-4 text-accent" />
+              <span>Sauvegarder</span>
+            </button>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className={`${btnSecondary} h-10`}
+              title="Restaurer une sauvegarde depuis un fichier JSON"
+            >
+              <Upload className="h-4 w-4 text-ink-dim" />
+              <span>Restaurer</span>
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleImportFile}
+              accept=".json"
+              className="hidden"
+            />
+            <button
+              onClick={() => setShowCloudModal(true)}
+              className={`inline-flex items-center justify-center gap-2 rounded-lg border h-10 px-3.5 text-sm font-semibold transition-colors cursor-pointer ${
+                currentUser
+                  ? 'border-up/40 bg-up/10 text-up hover:bg-up/20'
+                  : 'border-line-strong bg-surface hover:bg-surface-2 text-ink-dim hover:text-ink'
+              }`}
+              title={currentUser ? (cloudSynced ? 'Synchronisé avec Google Cloud' : 'Enregistrement Cloud...') : 'Synchronisation Google Cloud'}
+            >
+              <Cloud className={`h-4 w-4 ${cloudSynced ? 'text-up' : ''}`} />
+              <span>{currentUser ? (cloudSynced ? 'Cloud Synchro' : 'Cloud Actif') : 'Google Cloud'}</span>
+            </button>
             {!hasAnyData ? (
               <button onClick={handleLoadSimpleExample} className={`${btnSecondary} h-10`}>
                 Charger un exemple
@@ -1003,6 +1171,117 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
       {/* ===== Multi-Token Performance Comparison Chart (% Gain/Loss) ===== */}
       <PortfolioCompareChart tokens={basketTokens} />
+
+      {/* ===== Google Cloud Sync Modal ===== */}
+      {showCloudModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl border border-line bg-surface p-6 shadow-2xl space-y-5 animate-in fade-in">
+            <div className="flex items-center justify-between border-b border-line pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-surface-2 border border-line text-accent">
+                  <Cloud className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-ink">Google Cloud Sync</h3>
+                  <p className="text-xs text-ink-dim">Sauvegarde et synchronisation automatique</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCloudModal(false)}
+                className="text-ink-dim hover:text-ink p-1 cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {currentUser ? (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-line bg-well p-4 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-3 w-3 rounded-full bg-up animate-pulse" />
+                    <div>
+                      <div className="text-sm font-semibold text-ink">{currentUser.email}</div>
+                      <div className="text-xs text-ink-dim">Synchronisé en temps réel avec Google Cloud</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-xs text-ink-dim space-y-1.5">
+                  <p className="flex items-center gap-1.5 text-ink-mid">
+                    <Check className="h-3.5 w-3.5 text-up" />
+                    <span>Vos transactions sont sauvegardées dans le Cloud Google.</span>
+                  </p>
+                  <p className="flex items-center gap-1.5 text-ink-mid">
+                    <Check className="h-3.5 w-3.5 text-up" />
+                    <span>Ouvrez le site sur votre téléphone pour retrouver vos positions.</span>
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    onClick={handleGoogleSignOut}
+                    className="text-xs text-down hover:underline cursor-pointer flex items-center gap-1.5"
+                  >
+                    <LogOut className="h-3.5 w-3.5" />
+                    <span>Se déconnecter</span>
+                  </button>
+                  <button
+                    onClick={() => setShowCloudModal(false)}
+                    className={`${btnPrimary} h-9`}
+                  >
+                    Fermer
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-xs text-ink-dim leading-relaxed">
+                  Connectez votre compte Google pour sauvegarder automatiquement vos positions et y accéder depuis votre PC, téléphone ou tablette en toute sécurité.
+                </p>
+
+                <button
+                  onClick={handleGoogleSignIn}
+                  className="w-full flex items-center justify-center gap-3 rounded-xl bg-ink text-ground py-3 text-sm font-bold hover:bg-white transition cursor-pointer shadow-lg"
+                >
+                  <svg className="h-4 w-4" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                  </svg>
+                  <span>Continuer avec Google (Gmail)</span>
+                </button>
+
+                <div className="relative border-t border-line my-4 pt-4">
+                  <details className="text-xs text-ink-dim">
+                    <summary className="cursor-pointer text-accent hover:text-accent-bright font-medium">
+                      Paramètres avancés Firebase (optionnel)
+                    </summary>
+                    <div className="mt-3 space-y-2">
+                      <p className="text-[11px] text-ink-faint">
+                        Si vous avez votre propre projet Firebase, collez votre objet config JSON ci-dessous :
+                      </p>
+                      <textarea
+                        rows={3}
+                        placeholder='{"apiKey": "...", "projectId": "...", ...}'
+                        value={firebaseCfgInput}
+                        onChange={(e) => setFirebaseCfgInput(e.target.value)}
+                        className="w-full rounded-lg border border-line bg-well p-2 font-mono text-[11px] text-ink outline-none focus:border-accent"
+                      />
+                      <button
+                        onClick={handleSaveFirebaseConfig}
+                        className={`${btnSecondary} h-8 text-xs`}
+                      >
+                        Enregistrer la clé
+                      </button>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

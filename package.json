@@ -12,6 +12,7 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "clsx": "^2.1.1",
+    "firebase": "^13.0.0",
     "lightweight-charts": "^5.2.1",
     "lucide-react": "^1.50.0",
     "react": "^19.2.8",
