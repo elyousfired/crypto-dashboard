@@ -63,7 +63,7 @@ export interface OrderBookData {
 export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
 export type ChartType = 'candlestick' | 'line' | 'area';
 export type ViewMode = 'focus' | 'grid' | 'compare';
-export type DashboardPage = 'solana' | 'hyperliquid' | 'global';
+export type DashboardPage = 'solana' | 'hyperliquid' | 'global' | 'cross-pairs';
 
 export interface Stats30d {
   high30d: number;

@@ -48,13 +48,16 @@ import { RotationSwapScanner } from './components/RotationSwapScanner';
 import { MarketTable24h } from './components/MarketTable24h';
 import { SolanaEcosystemSection } from './components/SolanaEcosystemSection';
 import { HyperliquidEcosystemSection } from './components/HyperliquidEcosystemSection';
+import { CrossPairsPage } from './components/CrossPairsPage';
+import { CROSS_TOKENS } from './config/crossPairs';
 
 export const App: React.FC = () => {
-  // Navigation: Dedicated Page ('solana' | 'hyperliquid' | 'global')
+  // Navigation: Dedicated Page ('solana' | 'hyperliquid' | 'global' | 'cross-pairs')
   const [activePage, setActivePage] = useState<DashboardPage>(() => {
     if (typeof window !== 'undefined') {
       if (window.location.hash === '#global') return 'global';
       if (window.location.hash === '#hyperliquid') return 'hyperliquid';
+      if (window.location.hash === '#cross-pairs' || window.location.hash === '#pairs') return 'cross-pairs';
     }
     return 'solana'; // Defaults to dedicated Solana page
   });
@@ -62,6 +65,7 @@ export const App: React.FC = () => {
   const currentTokens = useMemo(() => {
     if (activePage === 'solana') return SOLANA_TOKENS;
     if (activePage === 'hyperliquid') return HYPERLIQUID_TOKENS;
+    if (activePage === 'cross-pairs') return CROSS_TOKENS;
     return GLOBAL_TOKENS;
   }, [activePage]);
 
@@ -70,6 +74,7 @@ export const App: React.FC = () => {
     if (typeof window !== 'undefined') {
       if (window.location.hash === '#global') return GLOBAL_TOKENS[0];
       if (window.location.hash === '#hyperliquid') return HYPERLIQUID_TOKENS[0];
+      if (window.location.hash === '#cross-pairs' || window.location.hash === '#pairs') return GLOBAL_TOKENS[1]; // SOL
     }
     return SOLANA_TOKENS[0];
   });
@@ -89,6 +94,8 @@ export const App: React.FC = () => {
       setSelectedToken(SOLANA_TOKENS[0]); // SOL
     } else if (page === 'hyperliquid') {
       setSelectedToken(HYPERLIQUID_TOKENS[0]); // HYPE
+    } else if (page === 'cross-pairs') {
+      setSelectedToken(GLOBAL_TOKENS[1]); // SOL
     } else {
       setSelectedToken(GLOBAL_TOKENS[0]); // SUI
     }
@@ -103,6 +110,9 @@ export const App: React.FC = () => {
       } else if (hash === '#hyperliquid') {
         setActivePage('hyperliquid');
         setSelectedToken(HYPERLIQUID_TOKENS[0]);
+      } else if (hash === '#cross-pairs' || hash === '#pairs') {
+        setActivePage('cross-pairs');
+        setSelectedToken(GLOBAL_TOKENS[1]);
       } else if (hash === '#solana') {
         setActivePage('solana');
         setSelectedToken(SOLANA_TOKENS[0]);
@@ -422,131 +432,141 @@ export const App: React.FC = () => {
 
       {/* Main Body */}
       <main className="flex-1 flex flex-col">
-        {viewMode === 'focus' ? (
-          <div className="flex-1 grid grid-cols-1 xl:grid-cols-4 border-b border-slate-800">
-            {/* Chart & Controls Column (Spans full 4 cols if order book is hidden, else 3 cols) */}
-            <div
-              className={`flex flex-col border-b xl:border-b-0 ${
-                showOrderBook ? 'xl:col-span-3 xl:border-r border-slate-800' : 'xl:col-span-4 w-full'
-              }`}
-            >
-              {/* Token Stats Header */}
-              <TokenStats
-                token={selectedToken}
-                ticker={tickers[selectedToken.symbol]}
-              />
+        {activePage === 'cross-pairs' ? (
+          <CrossPairsPage
+            tickers={tickers}
+            multiCandles={multiCandles}
+            stats30dMap={stats30dMap}
+          />
+        ) : (
+          <>
+            {viewMode === 'focus' ? (
+              <div className="flex-1 grid grid-cols-1 xl:grid-cols-4 border-b border-slate-800">
+                {/* Chart & Controls Column (Spans full 4 cols if order book is hidden, else 3 cols) */}
+                <div
+                  className={`flex flex-col border-b xl:border-b-0 ${
+                    showOrderBook ? 'xl:col-span-3 xl:border-r border-slate-800' : 'xl:col-span-4 w-full'
+                  }`}
+                >
+                  {/* Token Stats Header */}
+                  <TokenStats
+                    token={selectedToken}
+                    ticker={tickers[selectedToken.symbol]}
+                  />
 
-              {/* Chart Controls Bar with Order Book toggle */}
-              <ChartControls
-                timeframe={timeframe}
-                setTimeframe={setTimeframe}
-                chartType={chartType}
-                setChartType={setChartType}
-                showMA={showMA}
-                setShowMA={setShowMA}
-                showBollinger={showBollinger}
-                setShowBollinger={setShowBollinger}
-                showVolume={showVolume}
-                setShowVolume={setShowVolume}
-                showOrderBook={showOrderBook}
-                setShowOrderBook={setShowOrderBook}
-              />
+                  {/* Chart Controls Bar with Order Book toggle */}
+                  <ChartControls
+                    timeframe={timeframe}
+                    setTimeframe={setTimeframe}
+                    chartType={chartType}
+                    setChartType={setChartType}
+                    showMA={showMA}
+                    setShowMA={setShowMA}
+                    showBollinger={showBollinger}
+                    setShowBollinger={setShowBollinger}
+                    showVolume={showVolume}
+                    setShowVolume={setShowVolume}
+                    showOrderBook={showOrderBook}
+                    setShowOrderBook={setShowOrderBook}
+                  />
 
-              {/* Chart Canvas */}
-              <div className="flex-1 min-h-[540px] relative">
-                {isLoadingCandles && candles.length === 0 ? (
-                  <div className="absolute inset-0 z-30 bg-[#0b0e14]/80 flex flex-col items-center justify-center gap-3">
-                    <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm font-mono text-slate-300">
-                      Loading market candles for {selectedToken.symbol}...
-                    </span>
+                  {/* Chart Canvas */}
+                  <div className="flex-1 min-h-[540px] relative">
+                    {isLoadingCandles && candles.length === 0 ? (
+                      <div className="absolute inset-0 z-30 bg-[#0b0e14]/80 flex flex-col items-center justify-center gap-3">
+                        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                        <span className="text-sm font-mono text-slate-300">
+                          Loading market candles for {selectedToken.symbol}...
+                        </span>
+                      </div>
+                    ) : null}
+
+                    <ChartContainer
+                      token={selectedToken}
+                      data={candles}
+                      chartType={chartType}
+                      showMA={showMA}
+                      showBollinger={showBollinger}
+                      showVolume={showVolume}
+                      latestCandle={latestCandle}
+                    />
                   </div>
-                ) : null}
+                </div>
 
-                <ChartContainer
-                  token={selectedToken}
-                  data={candles}
-                  chartType={chartType}
-                  showMA={showMA}
-                  showBollinger={showBollinger}
-                  showVolume={showVolume}
-                  latestCandle={latestCandle}
+                {/* Right Column: Trades & Orderbook (Toggleable) */}
+                {showOrderBook && (
+                  <div className="xl:col-span-1 min-h-[500px] flex flex-col">
+                    <OrderBookTrades
+                      token={selectedToken}
+                      trades={trades}
+                      orderBook={orderBook}
+                      onClose={() => setShowOrderBook(false)}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : viewMode === 'grid' ? (
+              /* Multi-Chart Grid View */
+              <div className="flex-1">
+                <MultiChartView
+                  tokens={currentTokens}
+                  tickers={tickers}
+                  multiCandles={multiCandles}
+                  onSelectToken={handleSelectToken}
                 />
               </div>
-            </div>
-
-            {/* Right Column: Trades & Orderbook (Toggleable) */}
-            {showOrderBook && (
-              <div className="xl:col-span-1 min-h-[500px] flex flex-col">
-                <OrderBookTrades
-                  token={selectedToken}
-                  trades={trades}
-                  orderBook={orderBook}
-                  onClose={() => setShowOrderBook(false)}
+            ) : (
+              /* Multi-Asset Performance % Comparison Chart (Gain / Loss) */
+              <div className="flex-1">
+                <ComparePerformanceChart
+                  tokens={currentTokens}
+                  multiCandles={multiCandles}
+                  timeframe={compareTimeframe}
+                  onTimeframeChange={handleCompareTimeframeChange}
+                  onSelectToken={handleSelectToken}
                 />
               </div>
             )}
-          </div>
-        ) : viewMode === 'grid' ? (
-          /* Multi-Chart Grid View */
-          <div className="flex-1">
-            <MultiChartView
-              tokens={currentTokens}
-              tickers={tickers}
-              multiCandles={multiCandles}
-              onSelectToken={handleSelectToken}
-            />
-          </div>
-        ) : (
-          /* Multi-Asset Performance % Comparison Chart (Gain / Loss) */
-          <div className="flex-1">
-            <ComparePerformanceChart
-              tokens={currentTokens}
-              multiCandles={multiCandles}
-              timeframe={compareTimeframe}
-              onTimeframeChange={handleCompareTimeframeChange}
-              onSelectToken={handleSelectToken}
-            />
-          </div>
-        )}
 
-        {/* Dedicated Solana Hub Section (Displayed ONLY on Solana page) */}
-        {activePage === 'solana' && (
-          <SolanaEcosystemSection
-            tokens={SOLANA_TOKENS}
-            tickers={tickers}
-            stats30dMap={stats30dMap}
-            onSelectToken={handleSelectToken}
-          />
-        )}
+            {/* Dedicated Solana Hub Section (Displayed ONLY on Solana page) */}
+            {activePage === 'solana' && (
+              <SolanaEcosystemSection
+                tokens={SOLANA_TOKENS}
+                tickers={tickers}
+                stats30dMap={stats30dMap}
+                onSelectToken={handleSelectToken}
+              />
+            )}
 
-        {/* Dedicated Hyperliquid Hub Section (Displayed ONLY on Hyperliquid page) */}
-        {activePage === 'hyperliquid' && (
-          <HyperliquidEcosystemSection
-            tokens={HYPERLIQUID_TOKENS}
-            tickers={tickers}
-            stats30dMap={stats30dMap}
-            onSelectToken={handleSelectToken}
-          />
-        )}
+            {/* Dedicated Hyperliquid Hub Section (Displayed ONLY on Hyperliquid page) */}
+            {activePage === 'hyperliquid' && (
+              <HyperliquidEcosystemSection
+                tokens={HYPERLIQUID_TOKENS}
+                tickers={tickers}
+                stats30dMap={stats30dMap}
+                onSelectToken={handleSelectToken}
+              />
+            )}
 
-        {/* Rotation & Arbitrage Swap Scanner (Intra-Solana on Solana page, Intra-Hyperliquid on Hyperliquid page, Intra-Global on Global page) */}
-        {showRotationScanner && (
-          <RotationSwapScanner
-            tokens={currentTokens}
-            tickers={tickers}
-            onSelectToken={handleSelectToken}
-          />
-        )}
+            {/* Rotation & Arbitrage Swap Scanner (Intra-Solana on Solana page, Intra-Hyperliquid on Hyperliquid page, Intra-Global on Global page) */}
+            {showRotationScanner && (
+              <RotationSwapScanner
+                tokens={currentTokens}
+                tickers={tickers}
+                onSelectToken={handleSelectToken}
+              />
+            )}
 
-        {/* 24-Hour Market Overview Table (5 tokens on Solana page, 5 tokens on Hyperliquid page, 7 tokens on Global page) */}
-        {showMarketTable && (
-          <MarketTable24h
-            tokens={currentTokens}
-            tickers={tickers}
-            stats30dMap={stats30dMap}
-            onSelectToken={handleSelectToken}
-          />
+            {/* 24-Hour Market Overview Table (5 tokens on Solana page, 5 tokens on Hyperliquid page, 7 tokens on Global page) */}
+            {showMarketTable && (
+              <MarketTable24h
+                tokens={currentTokens}
+                tickers={tickers}
+                stats30dMap={stats30dMap}
+                onSelectToken={handleSelectToken}
+              />
+            )}
+          </>
         )}
       </main>
 
@@ -564,6 +584,10 @@ export const App: React.FC = () => {
           ) : activePage === 'hyperliquid' ? (
             <span className="text-teal-400 font-semibold">
               Page Dédiée 100% Hyperliquid : HYPE • PURR • HFUN • HYPER • JEFF (Hyperliquid L1 + Binance)
+            </span>
+          ) : activePage === 'cross-pairs' ? (
+            <span className="text-indigo-400 font-semibold">
+              Page Dédiée 15 Paires Synthétiques : Ratio Trading SOL • SUI • ZEC • MON • HYPE • PENGU
             </span>
           ) : (
             <>

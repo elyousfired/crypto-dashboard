@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ViewMode, DashboardPage } from '../types/crypto';
-import { Activity, Grid, Monitor, RefreshCw, TrendingUp, Table, Repeat, Zap, Globe } from 'lucide-react';
+import { Activity, Grid, Monitor, RefreshCw, TrendingUp, Table, Repeat, Zap, Globe, ArrowLeftRight } from 'lucide-react';
 
 interface HeaderProps {
   page: DashboardPage;
@@ -43,6 +43,8 @@ export const Header: React.FC<HeaderProps> = ({
                 ? 'bg-gradient-to-tr from-purple-600 via-indigo-600 to-emerald-400 shadow-purple-500/25'
                 : page === 'hyperliquid'
                 ? 'bg-gradient-to-tr from-teal-500 via-cyan-400 to-indigo-500 shadow-teal-500/25'
+                : page === 'cross-pairs'
+                ? 'bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-indigo-500/25'
                 : 'bg-gradient-to-tr from-amber-500 via-indigo-600 to-cyan-400 shadow-indigo-500/20'
             }`}>
               <div className="w-full h-full bg-[#0b0e14] rounded-[10px] flex items-center justify-center">
@@ -50,6 +52,8 @@ export const Header: React.FC<HeaderProps> = ({
                   <Zap className="w-5 h-5 text-emerald-400" />
                 ) : page === 'hyperliquid' ? (
                   <Activity className="w-5 h-5 text-teal-400" />
+                ) : page === 'cross-pairs' ? (
+                  <ArrowLeftRight className="w-5 h-5 text-indigo-400" />
                 ) : (
                   <Globe className="w-5 h-5 text-amber-400" />
                 )}
@@ -63,9 +67,11 @@ export const Header: React.FC<HeaderProps> = ({
                       ? 'bg-gradient-to-r from-purple-400 via-emerald-300 to-teal-300'
                       : page === 'hyperliquid'
                       ? 'bg-gradient-to-r from-teal-400 via-cyan-300 to-indigo-300'
+                      : page === 'cross-pairs'
+                      ? 'bg-gradient-to-r from-indigo-400 via-purple-300 to-pink-300'
                       : 'bg-gradient-to-r from-amber-400 via-indigo-400 to-cyan-400'
                   }`}>
-                    {page === 'solana' ? 'Solana Hub' : page === 'hyperliquid' ? 'Hyperliquid Hub' : 'Terminal'}
+                    {page === 'solana' ? 'Solana Hub' : page === 'hyperliquid' ? 'Hyperliquid Hub' : page === 'cross-pairs' ? 'Cross-Pairs Hub' : 'Terminal'}
                   </span>
                 </h1>
                 <span className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded border ${
@@ -73,9 +79,11 @@ export const Header: React.FC<HeaderProps> = ({
                     ? 'bg-purple-500/20 text-emerald-300 border-purple-500/30'
                     : page === 'hyperliquid'
                     ? 'bg-teal-500/20 text-teal-300 border-teal-500/30'
+                    : page === 'cross-pairs'
+                    ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
                     : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
                 }`}>
-                  {page === 'solana' ? '100% Solana' : page === 'hyperliquid' ? '100% Hyperliquid' : 'Global Hub'}
+                  {page === 'solana' ? '100% Solana' : page === 'hyperliquid' ? '100% Hyperliquid' : page === 'cross-pairs' ? '15 Paires Synthétiques' : 'Global Hub'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap">
@@ -91,6 +99,12 @@ export const Header: React.FC<HeaderProps> = ({
                     <span className="text-slate-600">•</span>
                     <span className="text-slate-200">HYPE • PURR • HFUN • HYPER • JEFF</span>
                   </>
+                ) : page === 'cross-pairs' ? (
+                  <>
+                    <span className="text-indigo-400 font-semibold">Paires Synthétiques & Ratio Trading</span>
+                    <span className="text-slate-600">•</span>
+                    <span className="text-slate-200">SOL • SUI • ZEC • MON • HYPE • PENGU (15 Paires Uniques)</span>
+                  </>
                 ) : (
                   <>
                     <span>Terminal Multi-Exchange</span>
@@ -102,7 +116,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Dedicated Page Tabs (Solana, Hyperliquid, Global) */}
+          {/* Dedicated Page Tabs (Solana, Hyperliquid, Global, Cross-Pairs) */}
           <div className="flex items-center bg-[#090d14] border border-slate-800 p-1 rounded-2xl shadow-inner w-full sm:w-auto justify-center flex-wrap gap-1">
             <button
               onClick={() => setPage('solana')}
@@ -138,6 +152,18 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Globe className="w-3.5 h-3.5 text-blue-400" />
               <span>🌐 Globaux (7)</span>
+            </button>
+
+            <button
+              onClick={() => setPage('cross-pairs')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${
+                page === 'cross-pairs'
+                  ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-md shadow-purple-950/40 ring-1 ring-indigo-400/40'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-300" />
+              <span>🔄 Cross-Pairs (15)</span>
             </button>
           </div>
 
