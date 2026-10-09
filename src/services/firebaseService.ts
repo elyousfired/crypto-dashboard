@@ -24,19 +24,30 @@ export interface FirebaseConfig {
   storageBucket?: string;
   messagingSenderId?: string;
   appId: string;
+  measurementId?: string;
 }
+
+// User's project config
+export const DEFAULT_FIREBASE_CONFIG: FirebaseConfig = {
+  apiKey: "AIzaSyDe-x34BXjRS5mlyi3fDdQzYUkWPg4AoN8",
+  authDomain: "apex-portfolio-43b6f.firebaseapp.com",
+  projectId: "apex-portfolio-43b6f",
+  storageBucket: "apex-portfolio-43b6f.firebasestorage.app",
+  messagingSenderId: "289401615239",
+  appId: "1:289401615239:web:a6a84b134ba54f28a3d922",
+  measurementId: "G-4RNK1RM8KG",
+};
 
 const FIREBASE_CONFIG_STORAGE_KEY = 'apex_firebase_custom_config_v1';
 
-// Default / saved config from localStorage or env
-export const getStoredFirebaseConfig = (): FirebaseConfig | null => {
+export const getStoredFirebaseConfig = (): FirebaseConfig => {
   try {
     const saved = localStorage.getItem(FIREBASE_CONFIG_STORAGE_KEY);
     if (saved) return JSON.parse(saved);
   } catch (e) {
     console.warn('Failed to load saved Firebase config:', e);
   }
-  return null;
+  return DEFAULT_FIREBASE_CONFIG;
 };
 
 export const saveFirebaseConfig = (config: FirebaseConfig) => {
@@ -72,16 +83,35 @@ export const initFirebase = (customConfig?: FirebaseConfig): boolean => {
   }
 };
 
-// Auto-init on load if config exists
+// Auto-init on load
 initFirebase();
 
 export const loginWithGoogle = async (): Promise<User | null> => {
   if (!auth) {
-    throw new Error('Firebase non configuré. Veuillez entrer votre configuration Firebase.');
+    initFirebase();
   }
+  if (!auth) {
+    throw new Error('Erreur d initialisation Firebase.');
+  }
+
   const provider = new GoogleAuthProvider();
-  const res = await signInWithPopup(auth, provider);
-  return res.user;
+  try {
+    const res = await signInWithPopup(auth, provider);
+    return res.user;
+  } catch (err: any) {
+    if (err.code === 'auth/unauthorized-domain') {
+      const hostname = window.location.hostname;
+      throw new Error(
+        `Le domaine ${hostname} doit être ajouté dans Firebase Console > Authentication > Settings > Domaines autorisés.`
+      );
+    }
+    if (err.code === 'auth/configuration-not-found') {
+      throw new Error(
+        'Veuillez activer la méthode de connexion "Google" dans Firebase Console > Authentication > Mode de connexion.'
+      );
+    }
+    throw err;
+  }
 };
 
 export const logoutGoogle = async (): Promise<void> => {
@@ -91,6 +121,9 @@ export const logoutGoogle = async (): Promise<void> => {
 };
 
 export const onAuthChange = (callback: (user: User | null) => void) => {
+  if (!auth) {
+    initFirebase();
+  }
   if (!auth) {
     callback(null);
     return () => {};
