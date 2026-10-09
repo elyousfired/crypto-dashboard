@@ -42,11 +42,12 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
 }) => {
   // 1. Initial Investment Settings
   const [initialPerToken, setInitialPerToken] = useState<number>(10); // $10 per token
-  const [rebalanceThresholdPct, setRebalanceThresholdPct] = useState<number>(5); // Trigger at +5% spread
+  const [rebalanceThresholdPct, setRebalanceThresholdPct] = useState<number>(3); // Trigger at +3% spread (Realistic & Effective)
   const [rebalancePortionPct, setRebalancePortionPct] = useState<number>(20); // Swap 20% of the leader
 
   // 2. State of user executed / live swaps
   const [executedSwaps, setExecutedSwaps] = useState<SimulatedSwap[]>([]);
+  const [customHoldings, setCustomHoldings] = useState<Record<string, number> | null>(null);
 
   // 3. Mode: Live Interactive vs Historical Backtest
   const [activeTab, setActiveTab] = useState<'live' | 'backtest'>('live');
@@ -85,6 +86,8 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
   // Reset simulator to initial $10 state
   const handleReset = useCallback(() => {
     setExecutedSwaps([]);
+    setCustomHoldings(null);
+    setActiveTab('live');
     const freshPrices: Record<string, number> = {};
     CROSS_TOKENS.forEach((t) => {
       const live = tickers[t.symbol]?.lastPrice;
@@ -95,26 +98,17 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
 
   // Calculate current holdings for each token taking executed swaps into account
   const currentHoldings = useMemo(() => {
+    if (customHoldings) return customHoldings;
+
     // Initial units based on baseline price
     const unitsMap: Record<string, number> = {};
-
     CROSS_TOKENS.forEach((t) => {
       const basePx = baselinePrices[t.id] || currentPrices[t.id] || 1;
       unitsMap[t.id] = initialPerToken / basePx;
     });
 
-    // Apply all executed swaps
-    executedSwaps.forEach((swap) => {
-      if (unitsMap[swap.fromTokenId] !== undefined) {
-        unitsMap[swap.fromTokenId] = Math.max(0, unitsMap[swap.fromTokenId] - swap.fromUnitsSold);
-      }
-      if (unitsMap[swap.toTokenId] !== undefined) {
-        unitsMap[swap.toTokenId] += swap.toUnitsBought;
-      }
-    });
-
     return unitsMap;
-  }, [initialPerToken, baselinePrices, currentPrices, executedSwaps]);
+  }, [customHoldings, initialPerToken, baselinePrices, currentPrices]);
 
   // Performance calculations for both strategies
   const portfolioStats = useMemo(() => {
@@ -255,6 +249,11 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
       gainPct: spread,
     };
 
+    const newHoldings = { ...currentHoldings };
+    newHoldings[fromToken.id] = Math.max(0, (newHoldings[fromToken.id] || 0) - fromUnitsSold);
+    newHoldings[toToken.id] = (newHoldings[toToken.id] || 0) + toUnitsBought;
+
+    setCustomHoldings(newHoldings);
     setExecutedSwaps((prev) => [newSwap, ...prev]);
   };
 
@@ -273,77 +272,80 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
     });
 
     if (minLen === Infinity || minLen < 10) {
-      alert("Données historiques insuffisantes pour le backtest automatique. Veuillez patienter pendant le chargement des bougies.");
+      alert("Données historiques en cours de chargement. Veuillez patienter une seconde puis réessayez.");
       return;
     }
 
-    // Baseline: first candle close of each token
+    // Baseline: first candle close of each token (24h-48h ago)
     const startPrices: Record<string, number> = {};
     const simUnits: Record<string, number> = {};
+    const refPx: Record<string, number> = {};
 
     CROSS_TOKENS.forEach((t) => {
       const cList = tokenCandles[t.id];
       const startPx = cList && cList.length ? cList[0].close : 1;
       startPrices[t.id] = startPx;
       simUnits[t.id] = initialPerToken / startPx;
+      refPx[t.id] = startPx;
     });
 
     setBaselinePrices(startPrices);
 
     const generatedSwaps: SimulatedSwap[] = [];
-    const lookback = 4; // Lookback 4 candles to calculate local momentum
 
-    // Iterate through time steps
-    for (let step = lookback; step < minLen; step += 3) {
-      let bestGainerId = '';
-      let bestGainerChange = -Infinity;
-      let worstDipId = '';
-      let worstDipChange = Infinity;
+    // Simulate divergence and rebalancing step by step across all candles
+    for (let step = 1; step < minLen; step++) {
+      let bestT: typeof CROSS_TOKENS[0] | null = null;
+      let bestPerf = -Infinity;
+      let worstT: typeof CROSS_TOKENS[0] | null = null;
+      let worstPerf = Infinity;
 
       CROSS_TOKENS.forEach((t) => {
         const cList = tokenCandles[t.id];
-        if (cList && cList[step] && cList[step - lookback]) {
-          const cur = cList[step].close;
-          const prev = cList[step - lookback].close;
-          const change = ((cur - prev) / prev) * 100;
+        if (cList && cList[step]) {
+          const p = cList[step].close;
+          const ref = refPx[t.id] || startPrices[t.id] || 1;
+          const perf = ((p - ref) / ref) * 100;
 
-          if (change > bestGainerChange) {
-            bestGainerChange = change;
-            bestGainerId = t.id;
+          if (perf > bestPerf) {
+            bestPerf = perf;
+            bestT = t;
           }
-          if (change < worstDipChange) {
-            worstDipChange = change;
-            worstDipId = t.id;
+          if (perf < worstPerf) {
+            worstPerf = perf;
+            worstT = t;
           }
         }
       });
 
-      const spread = bestGainerChange - worstDipChange;
+      const spread = bestPerf - worstPerf;
 
-      // Trigger if spread exceeds user threshold
-      if (spread >= rebalanceThresholdPct && bestGainerId && worstDipId && bestGainerId !== worstDipId) {
-        const fromToken = CROSS_TOKENS.find((t) => t.id === bestGainerId)!;
-        const toToken = CROSS_TOKENS.find((t) => t.id === worstDipId)!;
+      // Trigger if spread exceeds threshold
+      if (spread >= rebalanceThresholdPct && bestT && worstT && (bestT as any).id !== (worstT as any).id) {
+        const fromToken = bestT as typeof CROSS_TOKENS[0];
+        const toToken = worstT as typeof CROSS_TOKENS[0];
 
-        const fromPx = tokenCandles[bestGainerId][step].close;
-        const toPx = tokenCandles[worstDipId][step].close;
+        const fromPx = tokenCandles[fromToken.id][step].close;
+        const toPx = tokenCandles[toToken.id][step].close;
 
-        const fromUnits = simUnits[bestGainerId] || 0;
+        const fromUnits = simUnits[fromToken.id] || 0;
         const fromValUsd = fromUnits * fromPx;
         const swapUsd = (fromValUsd * rebalancePortionPct) / 100;
 
-        if (swapUsd > 0.1) {
+        if (swapUsd >= 0.15) {
           const soldUnits = swapUsd / fromPx;
           const boughtUnits = swapUsd / toPx;
 
-          simUnits[bestGainerId] -= soldUnits;
-          simUnits[worstDipId] += boughtUnits;
+          simUnits[fromToken.id] = Math.max(0, simUnits[fromToken.id] - soldUnits);
+          simUnits[toToken.id] = (simUnits[toToken.id] || 0) + boughtUnits;
+          refPx[fromToken.id] = fromPx;
+          refPx[toToken.id] = toPx;
 
-          const candleTime = tokenCandles[bestGainerId][step].time;
+          const candleTime = tokenCandles[fromToken.id][step].time;
           const dateObj = new Date(candleTime * 1000);
 
           generatedSwaps.unshift({
-            id: `backtest-${step}-${Date.now()}`,
+            id: `backtest-${step}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
             timestamp: candleTime * 1000,
             timeLabel: dateObj.toLocaleDateString() + ' ' + dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             fromTokenId: fromToken.id,
@@ -360,6 +362,7 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
       }
     }
 
+    setCustomHoldings({ ...simUnits });
     setExecutedSwaps(generatedSwaps);
     setActiveTab('backtest');
   };
@@ -428,10 +431,10 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
               onChange={(e) => setRebalanceThresholdPct(Number(e.target.value))}
               className="bg-[#090d14] text-xs font-mono font-bold text-white border border-slate-700 rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
             >
-              <option value={3}>+3% Écart</option>
-              <option value={5}>+5% Écart</option>
-              <option value={8}>+8% Écart</option>
-              <option value={10}>+10% Écart</option>
+              <option value={2}>+2% Écart (Actif)</option>
+              <option value={3}>+3% Écart (Optimal)</option>
+              <option value={5}>+5% Écart (Modéré)</option>
+              <option value={8}>+8% Écart (Large)</option>
             </select>
           </div>
 
@@ -652,10 +655,10 @@ export const BasketRotationSimulator: React.FC<BasketRotationSimulatorProps> = (
           {/* Historical Backtest Simulator */}
           <button
             onClick={runHistoricalSimulation}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-lg shadow-indigo-950/40 transition cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-lg shadow-indigo-950/40 transition cursor-pointer ring-2 ring-purple-500/40"
           >
             <History className="w-3.5 h-3.5" />
-            <span>Simuler l'Historique Automatique</span>
+            <span>🚀 Simuler l'Historique (100 Bougies)</span>
           </button>
         </div>
       </div>
