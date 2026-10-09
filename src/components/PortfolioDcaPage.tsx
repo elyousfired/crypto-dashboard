@@ -4,6 +4,7 @@ import { CROSS_TOKENS } from '../config/crossPairs';
 import { TOKENS } from '../config/tokens';
 import { Plus, Trash2, ChevronDown, X, Repeat } from 'lucide-react';
 import { AccumulationCurvesSection } from './AccumulationCurvesSection';
+import { PortfolioCompareChart } from './PortfolioCompareChart';
 
 interface PortfolioDcaPageProps {
   tickers: Record<string, TickerData>;
@@ -999,6 +1000,9 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
       {/* ===== Accumulation curves ===== */}
       <AccumulationCurvesSection tokensData={accumulationData} />
+
+      {/* ===== Multi-Token Performance Comparison Chart (% Gain/Loss) ===== */}
+      <PortfolioCompareChart tokens={basketTokens} />
     </div>
   );
 };
