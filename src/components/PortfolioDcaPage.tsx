@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import type { TickerData } from '../types/crypto';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import type { TickerData, TokenConfig } from '../types/crypto';
 import { CROSS_TOKENS } from '../config/crossPairs';
 import { TOKENS } from '../config/tokens';
-import { Plus, Trash2, TrendingUp, TrendingDown, Zap, Repeat } from 'lucide-react';
+import { Plus, Trash2, TrendingUp, TrendingDown, Zap, Repeat, X, PlusCircle, Sparkles } from 'lucide-react';
+import { AccumulationCurvesSection } from './AccumulationCurvesSection';
 
 interface PortfolioDcaPageProps {
   tickers: Record<string, TickerData>;
@@ -17,17 +18,96 @@ export interface SimpleTransaction {
 }
 
 const STORAGE_KEY = 'apex_simple_dca_portfolio_v4';
+const BASKET_STORAGE_KEY = 'apex_custom_basket_tokens_v2';
+
+const POPULAR_SUGGESTIONS = ['BTC', 'ETH', 'JUP', 'MET', 'PUMP', 'DOGE', 'NEAR', 'AVAX'];
 
 export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) => {
-  // Store transactions per token ID: { sol: [...], zec: [...], ... }
+  // 1. Dynamic Basket Tokens (defaults to the 6 core tokens: SOL, SUI, ZEC, MON, HYPE, PENGU)
+  const [basketTokens, setBasketTokens] = useState<TokenConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem(BASKET_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to load basket tokens:', e);
+    }
+    return CROSS_TOKENS;
+  });
+
+  // Save basket tokens to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(BASKET_STORAGE_KEY, JSON.stringify(basketTokens));
+    } catch (e) {
+      console.error('Failed to save basket tokens:', e);
+    }
+  }, [basketTokens]);
+
+  // 2. Custom Tickers for tokens added outside default config (e.g. BTC, ETH)
+  const [customTickers, setCustomTickers] = useState<Record<string, TickerData>>({});
+
+  // Fetch ticker from Binance public API
+  const fetchPriceForSymbol = useCallback(async (symbol: string) => {
+    try {
+      const res = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbol=${symbol}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCustomTickers((prev) => ({
+          ...prev,
+          [symbol]: {
+            symbol,
+            exchange: 'binance',
+            lastPrice: parseFloat(data.lastPrice),
+            priceChange: parseFloat(data.priceChange),
+            priceChangePercent: parseFloat(data.priceChangePercent),
+            highPrice: parseFloat(data.highPrice),
+            lowPrice: parseFloat(data.lowPrice),
+            volume: parseFloat(data.volume),
+            quoteVolume: parseFloat(data.quoteVolume),
+            timestamp: Date.now(),
+          },
+        }));
+      }
+    } catch (err) {
+      console.warn(`Could not fetch Binance ticker for ${symbol}:`, err);
+    }
+  }, []);
+
+  // Keep custom tickers updated
+  useEffect(() => {
+    const checkAndFetch = () => {
+      basketTokens.forEach((t) => {
+        if (!tickers[t.symbol]) {
+          fetchPriceForSymbol(t.symbol);
+        }
+      });
+    };
+
+    checkAndFetch();
+    const interval = setInterval(checkAndFetch, 10000);
+    return () => clearInterval(interval);
+  }, [basketTokens, tickers, fetchPriceForSymbol]);
+
+  // Helper to get real-time price
+  const getLivePrice = useCallback(
+    (token: TokenConfig): number => {
+      return tickers[token.symbol]?.lastPrice || customTickers[token.symbol]?.lastPrice || 0;
+    },
+    [tickers, customTickers]
+  );
+
+  // 3. Transactions map per token ID: { sol: [...], zec: [...], ... }
   const [entriesMap, setEntriesMap] = useState<Record<string, SimpleTransaction[]>>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) return JSON.parse(saved);
     } catch (e) {
-      console.warn('Failed to load portfolio:', e);
+      console.warn('Failed to load portfolio entries:', e);
     }
-    // Default initial state for the 6 core tokens
+    // Default initial empty state for 6 core tokens
     return {
       sol: [],
       sui: [],
@@ -38,7 +118,7 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     };
   });
 
-  // Save to localStorage whenever entries change
+  // Save entries to localStorage
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(entriesMap));
@@ -56,6 +136,10 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
   // Form inputs state per token: { [tokenId]: { amount: string, price: string } }
   const [inputs, setInputs] = useState<Record<string, { amount: string; price: string }>>({});
+
+  // Add Token Modal / Input State
+  const [showAddTokenBar, setShowAddTokenBar] = useState<boolean>(false);
+  const [newSymbolInput, setNewSymbolInput] = useState<string>('');
 
   const getMode = (tokenId: string): 'buy' | 'sell' => {
     return formModes[tokenId] || 'buy';
@@ -79,6 +163,66 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     }));
   };
 
+  // Add Token to Basket
+  const handleAddTokenToBasket = (rawSymbol: string) => {
+    const clean = rawSymbol.trim().toUpperCase().replace(/USDT$/, '').replace(/\/USDT$/, '');
+    if (!clean) return;
+
+    const lowerId = clean.toLowerCase();
+
+    // Check if already in basket
+    if (basketTokens.some((t) => t.id === lowerId || t.baseAsset.toUpperCase() === clean)) {
+      alert(`Token ${clean} aslan kayn f l-basket dyalk!`);
+      return;
+    }
+
+    // Look up in pre-configured TOKENS first
+    const found = TOKENS.find((t) => t.id === lowerId || t.baseAsset.toUpperCase() === clean);
+
+    const newToken: TokenConfig = found || {
+      id: lowerId,
+      name: clean,
+      symbol: `${clean}USDT`,
+      displaySymbol: `${clean} / USDT`,
+      baseAsset: clean,
+      quoteAsset: 'USDT',
+      exchange: 'binance',
+      precision: 2,
+      color: '#6366F1',
+      accentGradient: 'from-indigo-500 to-purple-500',
+      description: `Token ${clean} f l-basket`,
+    };
+
+    setBasketTokens((prev) => [...prev, newToken]);
+    setNewSymbolInput('');
+    setShowAddTokenBar(false);
+
+    // Fetch price immediately
+    fetchPriceForSymbol(newToken.symbol);
+  };
+
+  // Remove Token from Basket
+  const handleRemoveTokenFromBasket = (token: TokenConfig) => {
+    if (basketTokens.length <= 1) {
+      alert("Khas yb9a au moins token wa7ed f l-basket!");
+      return;
+    }
+
+    const txCount = (entriesMap[token.id] || []).length;
+    const confirmMsg = txCount > 0
+      ? `Bghiti t-7eyed ${token.baseAsset} mn l-basket? (${txCount} transactions dyalo ghadi y-tms7o)`
+      : `Bghiti t-7eyed ${token.baseAsset} mn l-basket?`;
+
+    if (window.confirm(confirmMsg)) {
+      setBasketTokens((prev) => prev.filter((t) => t.id !== token.id));
+      setEntriesMap((prev) => {
+        const copy = { ...prev };
+        delete copy[token.id];
+        return copy;
+      });
+    }
+  };
+
   // Add an entry (Buy or Sell) for a specific token
   const handleAddEntry = (tokenId: string) => {
     const mode = getMode(tokenId);
@@ -86,9 +230,9 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     const amount = parseFloat(currentInput.amount);
     let price = parseFloat(currentInput.price);
 
-    // If price input is empty, fallback to current live ticker price
-    const tokenConfig = TOKENS.find((t) => t.id === tokenId);
-    const livePrice = tokenConfig ? tickers[tokenConfig.symbol]?.lastPrice : 0;
+    const tokenConfig = basketTokens.find((t) => t.id === tokenId);
+    const livePrice = tokenConfig ? getLivePrice(tokenConfig) : 0;
+
     if ((isNaN(price) || price <= 0) && livePrice && livePrice > 0) {
       price = livePrice;
     }
@@ -132,11 +276,12 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
   const handleReinvestProfit = (fromTokenId: string, profitUsd: number, fromLivePrice: number) => {
     if (profitUsd <= 0.05) return;
 
-    const targetTokenId = reinvestTargetToken[fromTokenId] || CROSS_TOKENS.find((t) => t.id !== fromTokenId)?.id || 'zec';
-    const targetToken = TOKENS.find((t) => t.id === targetTokenId);
+    const availableTargets = basketTokens.filter((t) => t.id !== fromTokenId);
+    const targetTokenId = reinvestTargetToken[fromTokenId] || (availableTargets[0]?.id || 'zec');
+    const targetToken = basketTokens.find((t) => t.id === targetTokenId);
     if (!targetToken) return;
 
-    const toLivePrice = tickers[targetToken.symbol]?.lastPrice || 1;
+    const toLivePrice = getLivePrice(targetToken) || 1;
 
     // 1. Sell profit from winning token
     const sellTx: SimpleTransaction = {
@@ -165,28 +310,31 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     setShowReinvestDrawer((prev) => ({ ...prev, [fromTokenId]: false }));
   };
 
-  // Reset all
+  // Reset all transactions
   const handleResetAll = () => {
     if (window.confirm("Bghiti t-mseh ga3 les transactions?")) {
-      const emptyState: Record<string, SimpleTransaction[]> = {
-        sol: [],
-        sui: [],
-        zec: [],
-        mon: [],
-        hype: [],
-        pengu: [],
-      };
+      const emptyState: Record<string, SimpleTransaction[]> = {};
+      basketTokens.forEach((t) => {
+        emptyState[t.id] = [];
+      });
       setEntriesMap(emptyState);
       localStorage.removeItem(STORAGE_KEY);
+    }
+  };
+
+  // Reset Basket to Default 6 Tokens
+  const handleResetDefaultBasket = () => {
+    if (window.confirm("Bghiti trje3 l-basket l-asliyya fiha les 6 tokens (SOL, SUI, ZEC, MON, HYPE, PENGU)?")) {
+      setBasketTokens(CROSS_TOKENS);
+      localStorage.removeItem(BASKET_STORAGE_KEY);
     }
   };
 
   // 1-Click: Charger un exemple simple avec Buy & Sell
   const handleLoadSimpleExample = () => {
     const example: Record<string, SimpleTransaction[]> = {};
-    CROSS_TOKENS.forEach((t) => {
-      const live = tickers[t.symbol]?.lastPrice || 10;
-      // 1 achat bas, 1 achat renfort, 1 vente partielle avec profit
+    basketTokens.forEach((t) => {
+      const live = getLivePrice(t) || 10;
       example[t.id] = [
         { id: `ex-${t.id}-1`, type: 'buy', amountUsd: 15, price: live * 0.94, timestamp: Date.now() - 172800000 },
         { id: `ex-${t.id}-2`, type: 'buy', amountUsd: 10, price: live * 0.98, timestamp: Date.now() - 86400000 },
@@ -198,9 +346,9 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
   // Calculate statistics for each token taking both BUY and SELL into account
   const tokenStats = useMemo(() => {
-    return CROSS_TOKENS.map((token) => {
+    return basketTokens.map((token) => {
       const tokenEntries = entriesMap[token.id] || [];
-      const livePrice = tickers[token.symbol]?.lastPrice || 0;
+      const livePrice = getLivePrice(token);
 
       let coins = 0;
       let invested = 0; // Coût de revient de la position restante
@@ -260,7 +408,7 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
         isProfit,
       };
     });
-  }, [entriesMap, tickers]);
+  }, [basketTokens, entriesMap, getLivePrice]);
 
   // Global total stats
   const totalStats = useMemo(() => {
@@ -289,66 +437,201 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     };
   }, [tokenStats]);
 
+  // Prepare Accumulation Curve Data (Option B) for each token
+  const accumulationData = useMemo(() => {
+    return basketTokens.map((token) => {
+      const tokenEntries = entriesMap[token.id] || [];
+      const sortedTxs = [...tokenEntries].sort((a, b) => a.timestamp - b.timestamp);
+
+      let units = 0;
+      let initialUnits = 0;
+      let totalBoughtUnits = 0;
+      let totalSoldUnits = 0;
+      const historyPoints: { timestamp: number; units: number; type: 'buy' | 'sell' }[] = [];
+
+      sortedTxs.forEach((tx) => {
+        const q = tx.price > 0 ? tx.amountUsd / tx.price : 0;
+        if (tx.type === 'buy') {
+          units += q;
+          totalBoughtUnits += q;
+          if (initialUnits === 0) {
+            initialUnits = q;
+          }
+        } else if (tx.type === 'sell') {
+          units = Math.max(0, units - q);
+          totalSoldUnits += q;
+        }
+
+        historyPoints.push({
+          timestamp: tx.timestamp,
+          units,
+          type: tx.type,
+        });
+      });
+
+      const unitsGrowthPct = initialUnits > 0
+        ? ((units - initialUnits) / initialUnits) * 100
+        : 0;
+
+      return {
+        token,
+        entries: tokenEntries,
+        currentUnits: units,
+        totalBoughtUnits,
+        totalSoldUnits,
+        initialUnits,
+        unitsGrowthPct,
+        historyPoints,
+      };
+    });
+  }, [basketTokens, entriesMap]);
+
   return (
     <div className="flex-1 bg-[#090d14] p-4 lg:p-6 space-y-6 max-w-5xl mx-auto w-full">
-      {/* Top Simple Summary Bar */}
-      <div className="bg-[#0e131d] border border-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg">
-        <div>
-          <h2 className="text-xl font-black text-white m-0 flex items-center gap-2">
-            <span>📊 Suivi Simple des Achats (Buy) & Ventes (Sell)</span>
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Kteb les achates w les ventes dyalk, w l-application kat-7seb l-prix moyen w r-rba7 direct: <strong>SOL +X%</strong> wla <strong>ZEC -X%</strong>!
-          </p>
+      {/* Top Header & Basket Controls Bar */}
+      <div className="bg-[#0e131d] border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-black text-white m-0 flex items-center gap-2">
+              <span>🧺 Mon Basket de Trading & DCA</span>
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-mono font-bold">
+                {basketTokens.length} Tokens
+              </span>
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">
+              Gérer les achats, ventes partielles (profit shaving) w suivi d'accumulation des unités en direct.
+            </p>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center flex-wrap gap-2.5">
+            {/* Add Token Button */}
+            <button
+              onClick={() => setShowAddTokenBar((prev) => !prev)}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-indigo-950/40 cursor-pointer"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>Zid Token f L-Basket</span>
+            </button>
+
+            {/* Global Result Pill */}
+            {totalStats.totalInvested > 0 || totalStats.totalRealized !== 0 ? (
+              <div className={`px-4 py-2 rounded-xl border flex items-center gap-2 font-mono ${
+                totalStats.isProfit
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+              }`}>
+                <span className="text-xs text-slate-400 font-sans">Total:</span>
+                <span className="text-lg font-black">
+                  {totalStats.isProfit ? '+' : ''}{totalStats.netPnlPct.toFixed(1)}%
+                </span>
+                <span className="text-xs font-semibold">
+                  ({totalStats.isProfit ? '+' : ''}${totalStats.netPnlUsd.toFixed(2)})
+                </span>
+              </div>
+            ) : (
+              <button
+                onClick={handleLoadSimpleExample}
+                className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 text-xs font-bold transition cursor-pointer flex items-center gap-1"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>Charger Exemple</span>
+              </button>
+            )}
+
+            {(totalStats.totalInvested > 0 || totalStats.totalRealized !== 0) && (
+              <button
+                onClick={handleResetAll}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 border border-slate-700 transition cursor-pointer"
+                title="Mseh ga3 les transactions"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Global Result Pill */}
-        <div className="flex items-center gap-3">
-          {totalStats.totalInvested > 0 || totalStats.totalRealized !== 0 ? (
-            <div className={`px-4 py-2 rounded-xl border flex items-center gap-2 font-mono ${
-              totalStats.isProfit
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-            }`}>
-              <span className="text-xs text-slate-400 font-sans">Total:</span>
-              <span className="text-lg font-black">
-                {totalStats.isProfit ? '+' : ''}{totalStats.netPnlPct.toFixed(1)}%
+        {/* Expandable Add Token Box */}
+        {showAddTokenBar && (
+          <div className="bg-[#090d14] border border-indigo-500/30 rounded-xl p-3.5 space-y-3 transition animate-in fade-in">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                <PlusCircle className="w-4 h-4 text-indigo-400" />
+                <span>Kteb Smiya d Token li bghiti t-zid f l-basket:</span>
               </span>
-              <span className="text-xs font-semibold">
-                ({totalStats.isProfit ? '+' : ''}${totalStats.netPnlUsd.toFixed(2)})
-              </span>
+              <button
+                onClick={() => setShowAddTokenBar(false)}
+                className="text-slate-500 hover:text-white p-1 text-xs cursor-pointer"
+              >
+                ✕ Fermer
+              </button>
             </div>
-          ) : (
-            <button
-              onClick={handleLoadSimpleExample}
-              className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 text-xs font-bold transition cursor-pointer"
-            >
-              ✨ Charger Exemple (Buy & Sell)
-            </button>
-          )}
 
-          {(totalStats.totalInvested > 0 || totalStats.totalRealized !== 0) && (
-            <button
-              onClick={handleResetAll}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 border border-slate-700 transition cursor-pointer"
-              title="Mseh kolchi"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Exemple: BTC, ETH, JUP, DOGE, NEAR, AVAX..."
+                value={newSymbolInput}
+                onChange={(e) => setNewSymbolInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAddTokenToBasket(newSymbolInput);
+                }}
+                className="flex-1 bg-[#0d121c] border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
+              />
+              <button
+                onClick={() => handleAddTokenToBasket(newSymbolInput)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition cursor-pointer shrink-0"
+              >
+                Zid Token
+              </button>
+            </div>
+
+            {/* Quick Popular Suggestions */}
+            <div className="flex items-center flex-wrap gap-1.5 pt-1">
+              <span className="text-[11px] text-slate-500 font-medium">Suggestions sra3:</span>
+              {POPULAR_SUGGESTIONS.map((sym) => {
+                const isAlreadyInBasket = basketTokens.some(
+                  (t) => t.id === sym.toLowerCase() || t.baseAsset.toUpperCase() === sym
+                );
+                return (
+                  <button
+                    key={sym}
+                    disabled={isAlreadyInBasket}
+                    onClick={() => handleAddTokenToBasket(sym)}
+                    className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold transition cursor-pointer ${
+                      isAlreadyInBasket
+                        ? 'bg-slate-800/40 text-slate-600 border border-slate-800 cursor-not-allowed'
+                        : 'bg-slate-800 hover:bg-indigo-600/30 text-indigo-300 border border-slate-700 hover:border-indigo-500/40'
+                    }`}
+                  >
+                    +{sym}
+                  </button>
+                );
+              })}
+              {basketTokens.length !== 6 && (
+                <button
+                  onClick={handleResetDefaultBasket}
+                  className="ml-auto text-[10px] text-slate-500 hover:text-amber-400 underline cursor-pointer"
+                >
+                  Rje3 l 6 tokens l-asliyin
+                </button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* The 6 Token Cards - Ultra Clear & Simple */}
+      {/* The Dynamic Token Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {tokenStats.map((item) => {
           const inputVal = getInput(item.token.id);
           const currentMode = getMode(item.token.id);
+          const otherTokens = basketTokens.filter((t) => t.id !== item.token.id);
 
           return (
             <div
               key={item.token.id}
-              className={`bg-[#0d111a] border rounded-2xl p-4 transition space-y-3 shadow-md ${
+              className={`bg-[#0d111a] border rounded-2xl p-4 transition space-y-3 shadow-md relative group ${
                 item.hasEntries
                   ? item.isProfit
                     ? 'border-emerald-500/40 ring-1 ring-emerald-500/20'
@@ -359,11 +642,21 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
               {/* Token Header + Big Result (% Gain/Loss) */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-xs bg-gradient-to-br ${item.token.accentGradient}`}>
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-xs bg-gradient-to-br ${item.token.accentGradient || 'from-indigo-500 to-purple-600'}`}>
                     {item.token.baseAsset.slice(0, 3)}
                   </div>
                   <div>
-                    <span className="font-bold text-white text-base">{item.token.baseAsset}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white text-base">{item.token.baseAsset}</span>
+                      {/* Remove Token Button */}
+                      <button
+                        onClick={() => handleRemoveTokenFromBasket(item.token)}
+                        className="text-slate-600 hover:text-rose-400 p-0.5 transition cursor-pointer text-xs rounded hover:bg-rose-950/30"
+                        title="7eyed had token mn l-basket"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                     <span className="text-[11px] text-slate-400 block font-mono">
                       Prix Live: ${item.livePrice < 1 ? item.livePrice.toFixed(4) : item.livePrice.toFixed(2)}
                     </span>
@@ -434,18 +727,18 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
                     </button>
                   </div>
 
-                  {showReinvestDrawer[item.token.id] && (
+                  {showReinvestDrawer[item.token.id] && otherTokens.length > 0 && (
                     <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div className="flex items-center gap-1.5">
                         <span className="text-slate-400">Chri b dak r-rba7 (${item.unrealizedPnl.toFixed(2)}):</span>
                         <select
-                          value={reinvestTargetToken[item.token.id] || (CROSS_TOKENS.find((t) => t.id !== item.token.id)?.id || 'zec')}
+                          value={reinvestTargetToken[item.token.id] || otherTokens[0]?.id}
                           onChange={(e) => setReinvestTargetToken((prev) => ({ ...prev, [item.token.id]: e.target.value }))}
                           className="bg-[#090d14] text-xs font-bold text-white border border-slate-700 rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
                         >
-                          {CROSS_TOKENS.filter((t) => t.id !== item.token.id).map((t) => (
+                          {otherTokens.map((t) => (
                             <option key={t.id} value={t.id}>
-                              {t.baseAsset} ({tickers[t.symbol]?.priceChangePercent ? `${tickers[t.symbol].priceChangePercent.toFixed(1)}%` : 'Dip'})
+                              {t.baseAsset}
                             </option>
                           ))}
                         </select>
@@ -593,6 +886,9 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
           );
         })}
       </div>
+
+      {/* Option B: Bottom Dedicated Section for Accumulation Mini Curves */}
+      <AccumulationCurvesSection tokensData={accumulationData} />
     </div>
   );
 };
