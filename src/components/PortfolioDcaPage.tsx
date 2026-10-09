@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type { TickerData, TokenConfig } from '../types/crypto';
 import { CROSS_TOKENS } from '../config/crossPairs';
 import { TOKENS } from '../config/tokens';
-import { Plus, Trash2, TrendingUp, TrendingDown, Zap, Repeat, X, PlusCircle, Sparkles } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, X, Repeat } from 'lucide-react';
 import { AccumulationCurvesSection } from './AccumulationCurvesSection';
 
 interface PortfolioDcaPageProps {
@@ -21,6 +21,24 @@ const STORAGE_KEY = 'apex_simple_dca_portfolio_v4';
 const BASKET_STORAGE_KEY = 'apex_custom_basket_tokens_v2';
 
 const POPULAR_SUGGESTIONS = ['BTC', 'ETH', 'JUP', 'MET', 'PUMP', 'DOGE', 'NEAR', 'AVAX'];
+
+// ---------- Formatting helpers ----------
+const fmtPrice = (p: number) => {
+  if (!p) return '—';
+  if (p < 0.01) return p.toFixed(6);
+  if (p < 1) return p.toFixed(4);
+  return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+const fmtUsd = (v: number) =>
+  `$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtSignedUsd = (v: number) => `${v >= 0 ? '+' : '−'}${fmtUsd(v)}`;
+const fmtPct = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}%`;
+const fmtUnits = (u: number) => (u === 0 ? '0' : u < 1 ? u.toFixed(4) : u < 1000 ? u.toFixed(2) : u.toFixed(0));
+const pnlColor = (v: number) => (v > 0 ? 'text-emerald-400' : v < 0 ? 'text-rose-400' : 'text-zinc-400');
+const fmtDate = (ts: number) =>
+  new Date(ts).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' }) +
+  ' ' +
+  new Date(ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
 export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) => {
   // 1. Dynamic Basket Tokens (defaults to the 6 core tokens: SOL, SUI, ZEC, MON, HYPE, PENGU)
@@ -99,6 +117,13 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     [tickers, customTickers]
   );
 
+  const get24hChange = useCallback(
+    (token: TokenConfig): number | undefined => {
+      return tickers[token.symbol]?.priceChangePercent ?? customTickers[token.symbol]?.priceChangePercent;
+    },
+    [tickers, customTickers]
+  );
+
   // 3. Transactions map per token ID: { sol: [...], zec: [...], ... }
   const [entriesMap, setEntriesMap] = useState<Record<string, SimpleTransaction[]>>(() => {
     try {
@@ -130,14 +155,16 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
   // Form mode state per token: 'buy' | 'sell'
   const [formModes, setFormModes] = useState<Record<string, 'buy' | 'sell'>>({});
 
-  // Reinvest profit drawer state per token
-  const [showReinvestDrawer, setShowReinvestDrawer] = useState<Record<string, boolean>>({});
+  // Reinvest target per token
   const [reinvestTargetToken, setReinvestTargetToken] = useState<Record<string, string>>({});
 
   // Form inputs state per token: { [tokenId]: { amount: string, price: string } }
   const [inputs, setInputs] = useState<Record<string, { amount: string; price: string }>>({});
 
-  // Add Token Modal / Input State
+  // Expanded row in positions table
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Add Token input state
   const [showAddTokenBar, setShowAddTokenBar] = useState<boolean>(false);
   const [newSymbolInput, setNewSymbolInput] = useState<string>('');
 
@@ -165,18 +192,16 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
   // Add Token to Basket
   const handleAddTokenToBasket = (rawSymbol: string) => {
-    const clean = rawSymbol.trim().toUpperCase().replace(/USDT$/, '').replace(/\/USDT$/, '');
+    const clean = rawSymbol.trim().toUpperCase().replace(/\/?USDT$/, '');
     if (!clean) return;
 
     const lowerId = clean.toLowerCase();
 
-    // Check if already in basket
     if (basketTokens.some((t) => t.id === lowerId || t.baseAsset.toUpperCase() === clean)) {
-      alert(`Token ${clean} aslan kayn f l-basket dyalk!`);
+      alert(`${clean} est déjà dans le panier.`);
       return;
     }
 
-    // Look up in pre-configured TOKENS first
     const found = TOKENS.find((t) => t.id === lowerId || t.baseAsset.toUpperCase() === clean);
 
     const newToken: TokenConfig = found || {
@@ -188,30 +213,28 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
       quoteAsset: 'USDT',
       exchange: 'binance',
       precision: 2,
-      color: '#6366F1',
-      accentGradient: 'from-indigo-500 to-purple-500',
-      description: `Token ${clean} f l-basket`,
+      color: '#71717a',
+      accentGradient: 'from-zinc-600 to-zinc-700',
+      description: `${clean}`,
     };
 
     setBasketTokens((prev) => [...prev, newToken]);
     setNewSymbolInput('');
     setShowAddTokenBar(false);
-
-    // Fetch price immediately
     fetchPriceForSymbol(newToken.symbol);
   };
 
   // Remove Token from Basket
   const handleRemoveTokenFromBasket = (token: TokenConfig) => {
     if (basketTokens.length <= 1) {
-      alert("Khas yb9a au moins token wa7ed f l-basket!");
+      alert('Le panier doit contenir au moins un actif.');
       return;
     }
 
     const txCount = (entriesMap[token.id] || []).length;
     const confirmMsg = txCount > 0
-      ? `Bghiti t-7eyed ${token.baseAsset} mn l-basket? (${txCount} transactions dyalo ghadi y-tms7o)`
-      : `Bghiti t-7eyed ${token.baseAsset} mn l-basket?`;
+      ? `Retirer ${token.baseAsset} du panier ? Ses ${txCount} transactions seront supprimées.`
+      : `Retirer ${token.baseAsset} du panier ?`;
 
     if (window.confirm(confirmMsg)) {
       setBasketTokens((prev) => prev.filter((t) => t.id !== token.id));
@@ -220,6 +243,7 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
         delete copy[token.id];
         return copy;
       });
+      if (expandedId === token.id) setExpandedId(null);
     }
   };
 
@@ -238,12 +262,12 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     }
 
     if (isNaN(amount) || amount <= 0) {
-      alert("Kteb ch7al b dollar (ex: 10)");
+      alert('Montant invalide (ex : 10).');
       return;
     }
 
     if (isNaN(price) || price <= 0) {
-      alert("Kteb l-prix (ex: 118)");
+      alert('Prix invalide (ex : 118).');
       return;
     }
 
@@ -260,7 +284,6 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
       [tokenId]: [...(prev[tokenId] || []), newTx],
     }));
 
-    // Reset input price
     updateInput(tokenId, 'price', '');
   };
 
@@ -283,7 +306,6 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
     const toLivePrice = getLivePrice(targetToken) || 1;
 
-    // 1. Sell profit from winning token
     const sellTx: SimpleTransaction = {
       id: `tx-profit-sell-${Date.now()}`,
       type: 'sell',
@@ -292,7 +314,6 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
       timestamp: Date.now(),
     };
 
-    // 2. Buy target token with that profit
     const buyTx: SimpleTransaction = {
       id: `tx-profit-buy-${Date.now() + 1}`,
       type: 'buy',
@@ -306,13 +327,11 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
       [fromTokenId]: [...(prev[fromTokenId] || []), sellTx],
       [targetTokenId]: [...(prev[targetTokenId] || []), buyTx],
     }));
-
-    setShowReinvestDrawer((prev) => ({ ...prev, [fromTokenId]: false }));
   };
 
   // Reset all transactions
   const handleResetAll = () => {
-    if (window.confirm("Bghiti t-mseh ga3 les transactions?")) {
+    if (window.confirm('Supprimer toutes les transactions ?')) {
       const emptyState: Record<string, SimpleTransaction[]> = {};
       basketTokens.forEach((t) => {
         emptyState[t.id] = [];
@@ -324,13 +343,13 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
   // Reset Basket to Default 6 Tokens
   const handleResetDefaultBasket = () => {
-    if (window.confirm("Bghiti trje3 l-basket l-asliyya fiha les 6 tokens (SOL, SUI, ZEC, MON, HYPE, PENGU)?")) {
+    if (window.confirm('Restaurer le panier par défaut (SOL, SUI, ZEC, MON, HYPE, PENGU) ?')) {
       setBasketTokens(CROSS_TOKENS);
       localStorage.removeItem(BASKET_STORAGE_KEY);
     }
   };
 
-  // 1-Click: Charger un exemple simple avec Buy & Sell
+  // Load a simple example with Buy & Sell
   const handleLoadSimpleExample = () => {
     const example: Record<string, SimpleTransaction[]> = {};
     basketTokens.forEach((t) => {
@@ -391,7 +410,7 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
       return {
         token,
-        entries: tokenEntries,
+        entries: sortedTxs,
         hasEntries: tokenEntries.length > 0,
         coins,
         invested,
@@ -424,20 +443,24 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
       }
     });
 
-    const netPnlUsd = (totalValue - totalInvested) + totalRealized;
+    const unrealized = totalValue - totalInvested;
+    const netPnlUsd = unrealized + totalRealized;
     const netPnlPct = totalInvested > 0 ? (netPnlUsd / totalInvested) * 100 : 0;
+    const unrealizedPct = totalInvested > 0 ? (unrealized / totalInvested) * 100 : 0;
 
     return {
       totalInvested,
       totalValue,
       totalRealized,
+      unrealized,
+      unrealizedPct,
       netPnlUsd,
       netPnlPct,
       isProfit: netPnlUsd >= 0,
     };
   }, [tokenStats]);
 
-  // Prepare Accumulation Curve Data (Option B) for each token
+  // Prepare Accumulation Curve Data for each token
   const accumulationData = useMemo(() => {
     return basketTokens.map((token) => {
       const tokenEntries = entriesMap[token.id] || [];
@@ -486,408 +509,419 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     });
   }, [basketTokens, entriesMap]);
 
+  const hasAnyData = totalStats.totalInvested > 0 || totalStats.totalRealized !== 0;
+
+  const inputCls =
+    'w-full bg-[#0b0d11] border border-white/[0.08] rounded-md px-3 py-2 text-sm text-zinc-100 tabular-nums placeholder-zinc-600 focus:border-zinc-500 focus:outline-none transition';
+
   return (
-    <div className="flex-1 bg-[#090d14] p-4 lg:p-6 space-y-6 max-w-5xl mx-auto w-full">
-      {/* Top Header & Basket Controls Bar */}
-      <div className="bg-[#0e131d] border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-black text-white m-0 flex items-center gap-2">
-              <span>🧺 Mon Basket de Trading & DCA</span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 font-mono font-bold">
-                {basketTokens.length} Tokens
-              </span>
-            </h2>
-            <p className="text-xs text-slate-400 mt-1">
-              Gérer les achats, ventes partielles (profit shaving) w suivi d'accumulation des unités en direct.
-            </p>
-          </div>
+    <div className="flex-1 bg-[#0b0d11] px-4 lg:px-8 py-6 space-y-6 max-w-6xl mx-auto w-full text-zinc-300">
+      {/* ===== Page header ===== */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-lg font-semibold text-zinc-100 tracking-tight">Portfolio</h1>
+          <p className="text-xs text-zinc-500 mt-1">
+            {basketTokens.length} actifs · Prix moyen pondéré · Prise de profit et rotation
+          </p>
+        </div>
 
-          {/* Action Buttons */}
-          <div className="flex items-center flex-wrap gap-2.5">
-            {/* Add Token Button */}
+        <div className="flex items-center gap-2">
+          {!hasAnyData && (
             <button
-              onClick={() => setShowAddTokenBar((prev) => !prev)}
-              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-indigo-950/40 cursor-pointer"
+              onClick={handleLoadSimpleExample}
+              className="px-3 py-1.5 rounded-md text-xs font-medium text-zinc-400 hover:text-zinc-100 border border-white/[0.08] hover:border-white/20 transition cursor-pointer"
             >
-              <PlusCircle className="w-4 h-4" />
-              <span>Zid Token f L-Basket</span>
+              Charger un exemple
             </button>
+          )}
+          {hasAnyData && (
+            <button
+              onClick={handleResetAll}
+              className="p-2 rounded-md text-zinc-500 hover:text-rose-400 border border-white/[0.08] hover:border-rose-500/30 transition cursor-pointer"
+              title="Supprimer toutes les transactions"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <button
+            onClick={() => setShowAddTokenBar((prev) => !prev)}
+            className="px-3 py-1.5 rounded-md text-xs font-medium bg-zinc-100 text-zinc-900 hover:bg-white transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Ajouter un actif
+          </button>
+        </div>
+      </div>
 
-            {/* Global Result Pill */}
-            {totalStats.totalInvested > 0 || totalStats.totalRealized !== 0 ? (
-              <div className={`px-4 py-2 rounded-xl border flex items-center gap-2 font-mono ${
-                totalStats.isProfit
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                  : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
-              }`}>
-                <span className="text-xs text-slate-400 font-sans">Total:</span>
-                <span className="text-lg font-black">
-                  {totalStats.isProfit ? '+' : ''}{totalStats.netPnlPct.toFixed(1)}%
-                </span>
-                <span className="text-xs font-semibold">
-                  ({totalStats.isProfit ? '+' : ''}${totalStats.netPnlUsd.toFixed(2)})
-                </span>
-              </div>
-            ) : (
+      {/* ===== Add token panel ===== */}
+      {showAddTokenBar && (
+        <div className="rounded-lg border border-white/[0.08] bg-[#0f1217] p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              type="text"
+              placeholder="Symbole (ex : BTC, ETH, NEAR)"
+              value={newSymbolInput}
+              onChange={(e) => setNewSymbolInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAddTokenToBasket(newSymbolInput);
+                if (e.key === 'Escape') setShowAddTokenBar(false);
+              }}
+              className={`${inputCls} uppercase`}
+            />
+            <button
+              onClick={() => handleAddTokenToBasket(newSymbolInput)}
+              className="px-4 py-2 rounded-md text-sm font-medium bg-zinc-100 text-zinc-900 hover:bg-white transition cursor-pointer shrink-0"
+            >
+              Ajouter
+            </button>
+            <button
+              onClick={() => setShowAddTokenBar(false)}
+              className="p-2 rounded-md text-zinc-500 hover:text-zinc-200 transition cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex items-center flex-wrap gap-1.5">
+            {POPULAR_SUGGESTIONS.map((sym) => {
+              const inBasket = basketTokens.some(
+                (t) => t.id === sym.toLowerCase() || t.baseAsset.toUpperCase() === sym
+              );
+              return (
+                <button
+                  key={sym}
+                  disabled={inBasket}
+                  onClick={() => handleAddTokenToBasket(sym)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium border transition ${
+                    inBasket
+                      ? 'border-transparent text-zinc-700 cursor-not-allowed'
+                      : 'border-white/[0.08] text-zinc-400 hover:text-zinc-100 hover:border-white/20 cursor-pointer'
+                  }`}
+                >
+                  {sym}
+                </button>
+              );
+            })}
+            {basketTokens.length !== 6 && (
               <button
-                onClick={handleLoadSimpleExample}
-                className="px-3 py-1.5 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/30 text-indigo-300 text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                onClick={handleResetDefaultBasket}
+                className="ml-auto text-[11px] text-zinc-500 hover:text-zinc-300 cursor-pointer"
               >
-                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>Charger Exemple</span>
-              </button>
-            )}
-
-            {(totalStats.totalInvested > 0 || totalStats.totalRealized !== 0) && (
-              <button
-                onClick={handleResetAll}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 border border-slate-700 transition cursor-pointer"
-                title="Mseh ga3 les transactions"
-              >
-                <Trash2 className="w-4 h-4" />
+                Restaurer le panier par défaut
               </button>
             )}
           </div>
         </div>
+      )}
 
-        {/* Expandable Add Token Box */}
-        {showAddTokenBar && (
-          <div className="bg-[#090d14] border border-indigo-500/30 rounded-xl p-3.5 space-y-3 transition animate-in fade-in">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                <PlusCircle className="w-4 h-4 text-indigo-400" />
-                <span>Kteb Smiya d Token li bghiti t-zid f l-basket:</span>
-              </span>
-              <button
-                onClick={() => setShowAddTokenBar(false)}
-                className="text-slate-500 hover:text-white p-1 text-xs cursor-pointer"
-              >
-                ✕ Fermer
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Exemple: BTC, ETH, JUP, DOGE, NEAR, AVAX..."
-                value={newSymbolInput}
-                onChange={(e) => setNewSymbolInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleAddTokenToBasket(newSymbolInput);
-                }}
-                className="flex-1 bg-[#0d121c] border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
-              />
-              <button
-                onClick={() => handleAddTokenToBasket(newSymbolInput)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition cursor-pointer shrink-0"
-              >
-                Zid Token
-              </button>
-            </div>
-
-            {/* Quick Popular Suggestions */}
-            <div className="flex items-center flex-wrap gap-1.5 pt-1">
-              <span className="text-[11px] text-slate-500 font-medium">Suggestions sra3:</span>
-              {POPULAR_SUGGESTIONS.map((sym) => {
-                const isAlreadyInBasket = basketTokens.some(
-                  (t) => t.id === sym.toLowerCase() || t.baseAsset.toUpperCase() === sym
-                );
-                return (
-                  <button
-                    key={sym}
-                    disabled={isAlreadyInBasket}
-                    onClick={() => handleAddTokenToBasket(sym)}
-                    className={`px-2 py-0.5 rounded-lg text-[11px] font-mono font-bold transition cursor-pointer ${
-                      isAlreadyInBasket
-                        ? 'bg-slate-800/40 text-slate-600 border border-slate-800 cursor-not-allowed'
-                        : 'bg-slate-800 hover:bg-indigo-600/30 text-indigo-300 border border-slate-700 hover:border-indigo-500/40'
-                    }`}
-                  >
-                    +{sym}
-                  </button>
-                );
-              })}
-              {basketTokens.length !== 6 && (
-                <button
-                  onClick={handleResetDefaultBasket}
-                  className="ml-auto text-[10px] text-slate-500 hover:text-amber-400 underline cursor-pointer"
-                >
-                  Rje3 l 6 tokens l-asliyin
-                </button>
-              )}
-            </div>
+      {/* ===== Summary KPIs ===== */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-px bg-white/[0.06] rounded-lg overflow-hidden border border-white/[0.06]">
+        {[
+          { label: 'Valeur actuelle', value: fmtUsd(totalStats.totalValue), sub: null, color: 'text-zinc-100' },
+          { label: 'Capital investi', value: fmtUsd(totalStats.totalInvested), sub: null, color: 'text-zinc-100' },
+          {
+            label: 'P&L latent',
+            value: hasAnyData ? fmtSignedUsd(totalStats.unrealized) : '—',
+            sub: hasAnyData ? fmtPct(totalStats.unrealizedPct) : null,
+            color: hasAnyData ? pnlColor(totalStats.unrealized) : 'text-zinc-500',
+          },
+          {
+            label: 'Profit réalisé',
+            value: hasAnyData ? fmtSignedUsd(totalStats.totalRealized) : '—',
+            sub: hasAnyData ? `Total ${fmtSignedUsd(totalStats.netPnlUsd)}` : null,
+            color: hasAnyData ? pnlColor(totalStats.totalRealized) : 'text-zinc-500',
+          },
+        ].map((kpi) => (
+          <div key={kpi.label} className="bg-[#0f1217] px-5 py-4">
+            <div className="text-[11px] uppercase tracking-wider text-zinc-500">{kpi.label}</div>
+            <div className={`mt-1.5 text-xl font-semibold tabular-nums ${kpi.color}`}>{kpi.value}</div>
+            <div className="mt-0.5 h-4 text-xs tabular-nums text-zinc-500">{kpi.sub}</div>
           </div>
-        )}
+        ))}
       </div>
 
-      {/* The Dynamic Token Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {tokenStats.map((item) => {
-          const inputVal = getInput(item.token.id);
-          const currentMode = getMode(item.token.id);
-          const otherTokens = basketTokens.filter((t) => t.id !== item.token.id);
+      {/* ===== Positions table ===== */}
+      <section className="rounded-lg border border-white/[0.06] bg-[#0f1217] overflow-hidden">
+        <div className="px-5 py-4 border-b border-white/[0.06]">
+          <h3 className="text-sm font-semibold text-zinc-100 tracking-tight">Positions</h3>
+        </div>
 
-          return (
-            <div
-              key={item.token.id}
-              className={`bg-[#0d111a] border rounded-2xl p-4 transition space-y-3 shadow-md relative group ${
-                item.hasEntries
-                  ? item.isProfit
-                    ? 'border-emerald-500/40 ring-1 ring-emerald-500/20'
-                    : 'border-rose-500/40 ring-1 ring-rose-500/20'
-                  : 'border-slate-800'
-              }`}
-            >
-              {/* Token Header + Big Result (% Gain/Loss) */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-white font-bold text-xs bg-gradient-to-br ${item.token.accentGradient || 'from-indigo-500 to-purple-600'}`}>
-                    {item.token.baseAsset.slice(0, 3)}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-white text-base">{item.token.baseAsset}</span>
-                      {/* Remove Token Button */}
-                      <button
-                        onClick={() => handleRemoveTokenFromBasket(item.token)}
-                        className="text-slate-600 hover:text-rose-400 p-0.5 transition cursor-pointer text-xs rounded hover:bg-rose-950/30"
-                        title="7eyed had token mn l-basket"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                    <span className="text-[11px] text-slate-400 block font-mono">
-                      Prix Live: ${item.livePrice < 1 ? item.livePrice.toFixed(4) : item.livePrice.toFixed(2)}
-                    </span>
-                  </div>
-                </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[760px]">
+            <thead>
+              <tr className="text-[11px] uppercase tracking-wider text-zinc-500 border-b border-white/[0.06]">
+                <th className="text-left font-medium px-5 py-2.5">Actif</th>
+                <th className="text-right font-medium px-3 py-2.5">Prix</th>
+                <th className="text-right font-medium px-3 py-2.5">Prix moyen</th>
+                <th className="text-right font-medium px-3 py-2.5">Unités</th>
+                <th className="text-right font-medium px-3 py-2.5">Investi</th>
+                <th className="text-right font-medium px-3 py-2.5">Valeur</th>
+                <th className="text-right font-medium px-3 py-2.5">P&L vs moyen</th>
+                <th className="w-10" />
+              </tr>
+            </thead>
+            <tbody>
+              {tokenStats.map((item) => {
+                const isOpen = expandedId === item.token.id;
+                const change24h = get24hChange(item.token);
+                const inputVal = getInput(item.token.id);
+                const mode = getMode(item.token.id);
+                const otherTokens = basketTokens.filter((t) => t.id !== item.token.id);
+                const canRotate = item.hasEntries && item.unrealizedPnl >= 0.05 && otherTokens.length > 0;
 
-                {/* BIG RESULT BADGE (SOL +1.5% / ZEC -1.2%) */}
-                {item.hasEntries ? (
-                  <div className={`text-right px-3 py-1 rounded-xl font-mono ${
-                    item.isProfit
-                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                      : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                  }`}>
-                    <div className="text-xl font-black flex items-center justify-end gap-1">
-                      {item.isProfit ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-                      <span>{item.isProfit ? '+' : ''}{item.pnlPct.toFixed(1)}%</span>
-                    </div>
-                    <div className="text-[10px] font-bold">
-                      {item.isProfit ? '+' : ''}${item.totalPnlUsd.toFixed(2)} Total
-                    </div>
-                  </div>
-                ) : (
-                  <span className="text-xs text-slate-500 font-mono italic">
-                    Ma zedti 7ta opération
-                  </span>
-                )}
-              </div>
-
-              {/* Price Details Bar */}
-              {item.hasEntries && (
-                <div className="bg-[#090d14] rounded-xl p-2.5 flex items-center justify-between text-xs font-mono border border-slate-800/80">
-                  <div>
-                    <span className="text-[10px] text-slate-500 block uppercase">Prix Moyen (Avg)</span>
-                    <strong className="text-indigo-300">
-                      ${item.avgPrice < 1 ? item.avgPrice.toFixed(4) : item.avgPrice.toFixed(2)}
-                    </strong>
-                  </div>
-                  <div className="text-center">
-                    <span className="text-[10px] text-slate-500 block uppercase">Jetons Restants</span>
-                    <strong className="text-slate-200">
-                      {item.coins < 1 ? item.coins.toFixed(4) : item.coins.toFixed(2)} ({item.invested.toFixed(1)}$)
-                    </strong>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-500 block uppercase">Profit Vendu (Cash)</span>
-                    <strong className={item.realizedProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                      {item.realizedProfit >= 0 ? '+' : ''}${item.realizedProfit.toFixed(2)}
-                    </strong>
-                  </div>
-                </div>
-              )}
-
-              {/* One-Click Quick Reinvest Profit Button (If token is in profit) */}
-              {item.hasEntries && item.unrealizedPnl >= 0.05 && (
-                <div className="bg-gradient-to-r from-emerald-950/40 via-indigo-950/20 to-[#0e131d] border border-emerald-500/30 rounded-xl p-2.5 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
-                      <Repeat className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Rbahti +${item.unrealizedPnl.toFixed(2)} (+{item.pnlPct.toFixed(1)}%) !</span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setShowReinvestDrawer((prev) => ({ ...prev, [item.token.id]: !prev[item.token.id] }))}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 text-[11px] font-bold border border-emerald-500/40 transition cursor-pointer"
+                return (
+                  <React.Fragment key={item.token.id}>
+                    <tr
+                      onClick={() => setExpandedId(isOpen ? null : item.token.id)}
+                      className={`border-b border-white/[0.04] cursor-pointer transition ${
+                        isOpen ? 'bg-white/[0.03]' : 'hover:bg-white/[0.02]'
+                      }`}
                     >
-                      {showReinvestDrawer[item.token.id] ? 'Fermer' : '🔄 Swapi r-rba7 f token kher'}
-                    </button>
-                  </div>
-
-                  {showReinvestDrawer[item.token.id] && otherTokens.length > 0 && (
-                    <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-400">Chri b dak r-rba7 (${item.unrealizedPnl.toFixed(2)}):</span>
-                        <select
-                          value={reinvestTargetToken[item.token.id] || otherTokens[0]?.id}
-                          onChange={(e) => setReinvestTargetToken((prev) => ({ ...prev, [item.token.id]: e.target.value }))}
-                          className="bg-[#090d14] text-xs font-bold text-white border border-slate-700 rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
-                        >
-                          {otherTokens.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.baseAsset}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleReinvestProfit(item.token.id, item.unrealizedPnl, item.livePrice)}
-                        className="px-3 py-1 rounded-lg bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-1 shadow-md cursor-pointer"
-                      >
-                        <Zap className="w-3 h-3 text-amber-300" />
-                        <span>⚡ Swapi db</span>
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Ultra-Simple Form with Buy / Sell Toggle */}
-              <div className="pt-1 space-y-2">
-                {/* BUY / SELL Switcher */}
-                <div className="flex items-center gap-1 bg-[#090d14] p-0.5 rounded-lg border border-slate-800 w-fit">
-                  <button
-                    type="button"
-                    onClick={() => setMode(item.token.id, 'buy')}
-                    className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
-                      currentMode === 'buy'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <span>🟢 Achat (Buy)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setMode(item.token.id, 'sell')}
-                    className={`px-3 py-1 rounded-md text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
-                      currentMode === 'sell'
-                        ? 'bg-rose-600 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    <span>🔴 Vente (Sell)</span>
-                  </button>
-                </div>
-
-                {/* Input Boxes + Add Button */}
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <span className="absolute left-2.5 top-2 text-xs text-slate-500 font-mono">$</span>
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder={currentMode === 'buy' ? "Montant d'achat ($)" : "Montant vendu ($)"}
-                      value={inputVal.amount}
-                      onChange={(e) => updateInput(item.token.id, 'amount', e.target.value)}
-                      className="w-full bg-[#090d14] border border-slate-800 rounded-xl pl-6 pr-2 py-1.5 text-xs font-mono text-white placeholder-slate-600 focus:border-indigo-500 focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="relative flex-1">
-                    <span className="absolute left-2.5 top-2 text-xs text-slate-500 font-mono">$</span>
-                    <input
-                      type="number"
-                      step="any"
-                      placeholder={currentMode === 'buy' ? "Prix d'achat" : "Prix de vente"}
-                      value={inputVal.price}
-                      onChange={(e) => updateInput(item.token.id, 'price', e.target.value)}
-                      className="w-full bg-[#090d14] border border-slate-800 rounded-xl pl-6 pr-2 py-1.5 text-xs font-mono text-white placeholder-slate-600 focus:border-indigo-500 focus:outline-none"
-                    />
-                  </div>
-
-                  <button
-                    onClick={() => handleAddEntry(item.token.id)}
-                    className={`px-3.5 py-1.5 rounded-xl text-white font-bold text-xs flex items-center gap-1 transition cursor-pointer shrink-0 shadow-md ${
-                      currentMode === 'buy'
-                        ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-950/50'
-                        : 'bg-rose-600 hover:bg-rose-500 shadow-rose-950/50'
-                    }`}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>{currentMode === 'buy' ? 'Zid Chira' : 'Zid Bay3'}</span>
-                  </button>
-                </div>
-
-                {/* Quick Helper: Click to set price to current live market price */}
-                {item.livePrice > 0 && !inputVal.price && (
-                  <button
-                    type="button"
-                    onClick={() => updateInput(item.token.id, 'price', item.livePrice.toString())}
-                    className="text-[10px] text-slate-500 hover:text-indigo-400 flex items-center gap-1 cursor-pointer transition"
-                  >
-                    <Zap className="w-2.5 h-2.5 text-amber-400" />
-                    <span>Cliki bach t3mmer b le prix actuel (${item.livePrice < 1 ? item.livePrice.toFixed(4) : item.livePrice.toFixed(2)})</span>
-                  </button>
-                )}
-              </div>
-
-              {/* List of past transactions (Both BUY and SELL with clear badges) */}
-              {item.entries.length > 0 && (
-                <div className="pt-2 border-t border-slate-800/60">
-                  <span className="text-[10px] text-slate-500 font-semibold uppercase block mb-1.5">
-                    Historique ({item.entries.length} opérations) :
-                  </span>
-                  <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
-                    {item.entries.map((entry, idx) => {
-                      const isBuy = entry.type === 'buy';
-
-                      return (
-                        <div
-                          key={entry.id}
-                          className="bg-[#090d14] px-2.5 py-1 rounded-lg border border-slate-800 flex items-center justify-between text-[11px] font-mono text-slate-300"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[10px] text-slate-500 font-mono">#{idx + 1}</span>
-                            <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
-                              isBuy
-                                ? 'bg-emerald-500/20 text-emerald-300'
-                                : 'bg-rose-500/20 text-rose-300'
-                            }`}>
-                              {isBuy ? '🟢 BUY' : '🔴 SELL'}
-                            </span>
-                            <strong className="text-white">${entry.amountUsd.toFixed(1)}</strong>
-                            <span className="text-slate-500">à</span>
-                            <span className="text-indigo-300">${entry.price < 1 ? entry.price.toFixed(4) : entry.price.toFixed(2)}</span>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-7 h-7 rounded-full bg-zinc-800 text-zinc-300 text-[10px] font-semibold flex items-center justify-center">
+                            {item.token.baseAsset.slice(0, 3)}
                           </div>
-
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleDeleteEntry(item.token.id, entry.id)}
-                              className="text-slate-500 hover:text-rose-400 p-0.5 transition cursor-pointer"
-                              title="Mseh had l'opération"
-                            >
-                              ✕
-                            </button>
+                          <div>
+                            <div className="font-medium text-zinc-100 leading-tight">{item.token.baseAsset}</div>
+                            <div className="text-[11px] text-zinc-500 leading-tight">{item.token.name}</div>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums">
+                        <div className="text-zinc-200">{fmtPrice(item.livePrice)}</div>
+                        {change24h !== undefined && (
+                          <div className={`text-[11px] ${pnlColor(change24h)}`}>{fmtPct(change24h)}</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-zinc-300">
+                        {item.hasEntries ? fmtPrice(item.avgPrice) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-zinc-300">
+                        {item.hasEntries ? fmtUnits(item.coins) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-zinc-300">
+                        {item.hasEntries ? fmtUsd(item.invested) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-zinc-100">
+                        {item.hasEntries ? fmtUsd(item.currentValue) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums">
+                        {item.hasEntries ? (
+                          <>
+                            <div className={`font-medium ${pnlColor(item.pnlPct)}`}>{fmtPct(item.pnlPct)}</div>
+                            <div className={`text-[11px] ${pnlColor(item.unrealizedPnl)}`}>
+                              {fmtSignedUsd(item.unrealizedPnl)}
+                            </div>
+                          </>
+                        ) : (
+                          <span className="text-zinc-600">—</span>
+                        )}
+                      </td>
+                      <td className="pr-4 py-3 text-right">
+                        <ChevronDown
+                          className={`w-4 h-4 text-zinc-500 inline transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                        />
+                      </td>
+                    </tr>
 
-      {/* Option B: Bottom Dedicated Section for Accumulation Mini Curves */}
+                    {/* ===== Expanded detail ===== */}
+                    {isOpen && (
+                      <tr className="border-b border-white/[0.06] bg-white/[0.015]">
+                        <td colSpan={8} className="px-5 py-5">
+                          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                            {/* Left: order form + rotation */}
+                            <div className="lg:col-span-2 space-y-4">
+                              <div className="inline-flex p-0.5 rounded-md border border-white/[0.08] bg-[#0b0d11]">
+                                {(['buy', 'sell'] as const).map((m) => (
+                                  <button
+                                    key={m}
+                                    onClick={() => setMode(item.token.id, m)}
+                                    className={`px-4 py-1 rounded text-xs font-medium transition cursor-pointer ${
+                                      mode === m ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
+                                    }`}
+                                  >
+                                    {m === 'buy' ? 'Achat' : 'Vente'}
+                                  </button>
+                                ))}
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <label className="space-y-1">
+                                  <span className="text-[11px] text-zinc-500">Montant (USD)</span>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={inputVal.amount}
+                                    onChange={(e) => updateInput(item.token.id, 'amount', e.target.value)}
+                                    className={inputCls}
+                                  />
+                                </label>
+                                <label className="space-y-1">
+                                  <span className="text-[11px] text-zinc-500 flex justify-between">
+                                    <span>Prix</span>
+                                    {item.livePrice > 0 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => updateInput(item.token.id, 'price', item.livePrice.toString())}
+                                        className="text-zinc-500 hover:text-zinc-200 cursor-pointer"
+                                      >
+                                        Marché
+                                      </button>
+                                    )}
+                                  </span>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    placeholder={item.livePrice ? fmtPrice(item.livePrice) : ''}
+                                    value={inputVal.price}
+                                    onChange={(e) => updateInput(item.token.id, 'price', e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleAddEntry(item.token.id)}
+                                    className={inputCls}
+                                  />
+                                </label>
+                              </div>
+
+                              <button
+                                onClick={() => handleAddEntry(item.token.id)}
+                                className="w-full py-2 rounded-md text-sm font-medium bg-zinc-100 text-zinc-900 hover:bg-white transition cursor-pointer"
+                              >
+                                {mode === 'buy' ? `Enregistrer l'achat` : 'Enregistrer la vente'}
+                              </button>
+
+                              {canRotate && (
+                                <div className="rounded-md border border-white/[0.08] p-3 space-y-2.5">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="text-zinc-400 flex items-center gap-1.5">
+                                      <Repeat className="w-3.5 h-3.5" />
+                                      Rotation du profit
+                                    </span>
+                                    <span className={`tabular-nums font-medium ${pnlColor(item.unrealizedPnl)}`}>
+                                      {fmtSignedUsd(item.unrealizedPnl)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <select
+                                      value={reinvestTargetToken[item.token.id] || otherTokens[0]?.id}
+                                      onChange={(e) =>
+                                        setReinvestTargetToken((prev) => ({ ...prev, [item.token.id]: e.target.value }))
+                                      }
+                                      className="flex-1 bg-[#0b0d11] border border-white/[0.08] rounded-md px-2 py-1.5 text-xs text-zinc-200 focus:outline-none cursor-pointer"
+                                    >
+                                      {otherTokens.map((t) => {
+                                        const s = tokenStats.find((x) => x.token.id === t.id);
+                                        return (
+                                          <option key={t.id} value={t.id}>
+                                            {t.baseAsset}
+                                            {s?.hasEntries ? `  (${fmtPct(s.pnlPct)})` : ''}
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                    <button
+                                      onClick={() =>
+                                        handleReinvestProfit(item.token.id, item.unrealizedPnl, item.livePrice)
+                                      }
+                                      className="px-3 py-1.5 rounded-md text-xs font-medium border border-white/[0.12] text-zinc-200 hover:bg-white/[0.06] transition cursor-pointer"
+                                    >
+                                      Exécuter
+                                    </button>
+                                  </div>
+                                  <p className="text-[11px] text-zinc-600">
+                                    Vend uniquement le profit et l'achète sur l'actif choisi. Le capital reste en place.
+                                  </p>
+                                </div>
+                              )}
+
+                              <div className="flex items-center justify-between pt-1 text-[11px]">
+                                <span className="text-zinc-500">
+                                  Réalisé{' '}
+                                  <span className={`tabular-nums ${pnlColor(item.realizedProfit)}`}>
+                                    {item.hasEntries ? fmtSignedUsd(item.realizedProfit) : '—'}
+                                  </span>
+                                </span>
+                                <button
+                                  onClick={() => handleRemoveTokenFromBasket(item.token)}
+                                  className="text-zinc-600 hover:text-rose-400 transition cursor-pointer"
+                                >
+                                  Retirer l'actif
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Right: transaction history */}
+                            <div className="lg:col-span-3">
+                              <div className="text-[11px] uppercase tracking-wider text-zinc-500 mb-2">
+                                Historique · {item.entries.length}
+                              </div>
+                              {item.entries.length === 0 ? (
+                                <div className="h-24 flex items-center justify-center rounded-md border border-dashed border-white/[0.08] text-xs text-zinc-600">
+                                  Aucune transaction
+                                </div>
+                              ) : (
+                                <div className="max-h-64 overflow-y-auto rounded-md border border-white/[0.06]">
+                                  <table className="w-full text-xs">
+                                    <thead className="sticky top-0 bg-[#12151b]">
+                                      <tr className="text-zinc-500">
+                                        <th className="text-left font-medium px-3 py-2">Date</th>
+                                        <th className="text-left font-medium px-3 py-2">Type</th>
+                                        <th className="text-right font-medium px-3 py-2">Montant</th>
+                                        <th className="text-right font-medium px-3 py-2">Prix</th>
+                                        <th className="text-right font-medium px-3 py-2">Unités</th>
+                                        <th className="w-8" />
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {[...item.entries].reverse().map((entry) => {
+                                        const isBuy = entry.type === 'buy';
+                                        const units = entry.price > 0 ? entry.amountUsd / entry.price : 0;
+                                        return (
+                                          <tr key={entry.id} className="border-t border-white/[0.04] group">
+                                            <td className="px-3 py-2 text-zinc-500 tabular-nums">{fmtDate(entry.timestamp)}</td>
+                                            <td className="px-3 py-2">
+                                              <span className={isBuy ? 'text-emerald-400' : 'text-rose-400'}>
+                                                {isBuy ? 'Achat' : 'Vente'}
+                                              </span>
+                                            </td>
+                                            <td className="px-3 py-2 text-right tabular-nums text-zinc-200">
+                                              {fmtUsd(entry.amountUsd)}
+                                            </td>
+                                            <td className="px-3 py-2 text-right tabular-nums text-zinc-300">
+                                              {fmtPrice(entry.price)}
+                                            </td>
+                                            <td className="px-3 py-2 text-right tabular-nums text-zinc-400">
+                                              {isBuy ? '+' : '−'}{fmtUnits(units)}
+                                            </td>
+                                            <td className="px-2 py-2 text-right">
+                                              <button
+                                                onClick={() => handleDeleteEntry(item.token.id, entry.id)}
+                                                className="text-zinc-700 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                                                title="Supprimer"
+                                              >
+                                                <X className="w-3.5 h-3.5" />
+                                              </button>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* ===== Accumulation curves ===== */}
       <AccumulationCurvesSection tokensData={accumulationData} />
     </div>
   );
