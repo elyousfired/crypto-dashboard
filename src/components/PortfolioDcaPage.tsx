@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import type { TickerData } from '../types/crypto';
 import { CROSS_TOKENS } from '../config/crossPairs';
 import { TOKENS } from '../config/tokens';
-import { Plus, Trash2, TrendingUp, TrendingDown, Zap } from 'lucide-react';
+import { Plus, Trash2, TrendingUp, TrendingDown, Zap, Repeat } from 'lucide-react';
 
 interface PortfolioDcaPageProps {
   tickers: Record<string, TickerData>;
@@ -49,6 +49,10 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
   // Form mode state per token: 'buy' | 'sell'
   const [formModes, setFormModes] = useState<Record<string, 'buy' | 'sell'>>({});
+
+  // Reinvest profit drawer state per token
+  const [showReinvestDrawer, setShowReinvestDrawer] = useState<Record<string, boolean>>({});
+  const [reinvestTargetToken, setReinvestTargetToken] = useState<Record<string, string>>({});
 
   // Form inputs state per token: { [tokenId]: { amount: string, price: string } }
   const [inputs, setInputs] = useState<Record<string, { amount: string; price: string }>>({});
@@ -122,6 +126,43 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
       ...prev,
       [tokenId]: (prev[tokenId] || []).filter((e) => e.id !== entryId),
     }));
+  };
+
+  // One-Click: Reinvest Profit from winning token into a lagging token
+  const handleReinvestProfit = (fromTokenId: string, profitUsd: number, fromLivePrice: number) => {
+    if (profitUsd <= 0.05) return;
+
+    const targetTokenId = reinvestTargetToken[fromTokenId] || CROSS_TOKENS.find((t) => t.id !== fromTokenId)?.id || 'zec';
+    const targetToken = TOKENS.find((t) => t.id === targetTokenId);
+    if (!targetToken) return;
+
+    const toLivePrice = tickers[targetToken.symbol]?.lastPrice || 1;
+
+    // 1. Sell profit from winning token
+    const sellTx: SimpleTransaction = {
+      id: `tx-profit-sell-${Date.now()}`,
+      type: 'sell',
+      amountUsd: profitUsd,
+      price: fromLivePrice,
+      timestamp: Date.now(),
+    };
+
+    // 2. Buy target token with that profit
+    const buyTx: SimpleTransaction = {
+      id: `tx-profit-buy-${Date.now() + 1}`,
+      type: 'buy',
+      amountUsd: profitUsd,
+      price: toLivePrice,
+      timestamp: Date.now() + 1,
+    };
+
+    setEntriesMap((prev) => ({
+      ...prev,
+      [fromTokenId]: [...(prev[fromTokenId] || []), sellTx],
+      [targetTokenId]: [...(prev[targetTokenId] || []), buyTx],
+    }));
+
+    setShowReinvestDrawer((prev) => ({ ...prev, [fromTokenId]: false }));
   };
 
   // Reset all
@@ -372,6 +413,54 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
                       {item.realizedProfit >= 0 ? '+' : ''}${item.realizedProfit.toFixed(2)}
                     </strong>
                   </div>
+                </div>
+              )}
+
+              {/* One-Click Quick Reinvest Profit Button (If token is in profit) */}
+              {item.hasEntries && item.unrealizedPnl >= 0.05 && (
+                <div className="bg-gradient-to-r from-emerald-950/40 via-indigo-950/20 to-[#0e131d] border border-emerald-500/30 rounded-xl p-2.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                      <Repeat className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Rbahti +${item.unrealizedPnl.toFixed(2)} (+{item.pnlPct.toFixed(1)}%) !</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowReinvestDrawer((prev) => ({ ...prev, [item.token.id]: !prev[item.token.id] }))}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 text-[11px] font-bold border border-emerald-500/40 transition cursor-pointer"
+                    >
+                      {showReinvestDrawer[item.token.id] ? 'Fermer' : '🔄 Swapi r-rba7 f token kher'}
+                    </button>
+                  </div>
+
+                  {showReinvestDrawer[item.token.id] && (
+                    <div className="pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-400">Chri b dak r-rba7 (${item.unrealizedPnl.toFixed(2)}):</span>
+                        <select
+                          value={reinvestTargetToken[item.token.id] || (CROSS_TOKENS.find((t) => t.id !== item.token.id)?.id || 'zec')}
+                          onChange={(e) => setReinvestTargetToken((prev) => ({ ...prev, [item.token.id]: e.target.value }))}
+                          className="bg-[#090d14] text-xs font-bold text-white border border-slate-700 rounded-lg px-2 py-1 focus:outline-none cursor-pointer"
+                        >
+                          {CROSS_TOKENS.filter((t) => t.id !== item.token.id).map((t) => (
+                            <option key={t.id} value={t.id}>
+                              {t.baseAsset} ({tickers[t.symbol]?.priceChangePercent ? `${tickers[t.symbol].priceChangePercent.toFixed(1)}%` : 'Dip'})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleReinvestProfit(item.token.id, item.unrealizedPnl, item.livePrice)}
+                        className="px-3 py-1 rounded-lg bg-gradient-to-r from-emerald-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center gap-1 shadow-md cursor-pointer"
+                      >
+                        <Zap className="w-3 h-3 text-amber-300" />
+                        <span>⚡ Swapi db</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
