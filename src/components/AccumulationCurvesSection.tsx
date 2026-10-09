@@ -21,15 +21,15 @@ const fmtUnits = (u: number) => (u === 0 ? '0' : u < 1 ? u.toFixed(4) : u < 1000
 
 export const AccumulationCurvesSection: React.FC<AccumulationCurvesSectionProps> = ({ tokensData }) => {
   return (
-    <section className="rounded-lg border border-white/[0.06] bg-[#0f1217]">
-      <div className="flex items-baseline justify-between px-5 py-4 border-b border-white/[0.06]">
+    <section className="rounded-xl border border-line bg-surface overflow-hidden">
+      <div className="flex items-baseline justify-between px-5 py-4 border-b border-line">
         <div>
-          <h3 className="text-sm font-semibold text-zinc-100 tracking-tight">Accumulation des unités</h3>
-          <p className="text-xs text-zinc-500 mt-0.5">Évolution du nombre de jetons détenus, transaction par transaction.</p>
+          <h3 className="text-sm font-semibold text-ink tracking-tight">Accumulation des unités</h3>
+          <p className="text-xs text-ink-dim mt-0.5">Évolution du nombre de jetons détenus, transaction par transaction.</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-white/[0.06] rounded-b-lg overflow-hidden">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-line">
         {tokensData.map((data) => {
           const { token, entries, currentUnits, initialUnits, unitsGrowthPct, historyPoints } = data;
           const hasEntries = entries.length > 0;
@@ -55,7 +55,6 @@ export const AccumulationCurvesSection: React.FC<AccumulationCurvesSectionProps>
             if (pts.length === 1) {
               pathD = `M ${PAD} ${pts[0].y} L ${W - PAD} ${pts[0].y}`;
             } else {
-              // Step chart: units change discretely at each transaction
               pathD = `M ${pts[0].x} ${pts[0].y}`;
               for (let i = 1; i < pts.length; i++) {
                 pathD += ` H ${pts[i].x} V ${pts[i].y}`;
@@ -69,15 +68,15 @@ export const AccumulationCurvesSection: React.FC<AccumulationCurvesSectionProps>
           return (
             <div
               key={token.id}
-              className="px-5 py-4 bg-[#0f1217]"
+              className="px-5 py-4 bg-surface"
             >
               <div className="flex items-baseline justify-between">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold text-zinc-100">{token.baseAsset}</span>
-                  <span className="text-xs text-zinc-500 tabular-nums">{fmtUnits(currentUnits)} unités</span>
+                  <span className="text-sm font-semibold text-ink">{token.baseAsset}</span>
+                  <span className="text-xs text-ink-dim font-mono tabular-nums">{fmtUnits(currentUnits)} unités</span>
                 </div>
                 {hasEntries && (
-                  <span className={`text-xs font-medium tabular-nums ${positive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  <span className={`text-xs font-semibold font-mono tabular-nums ${positive ? 'text-up' : 'text-down'}`}>
                     {positive ? '+' : ''}{unitsGrowthPct.toFixed(1)}%
                   </span>
                 )}
@@ -86,20 +85,26 @@ export const AccumulationCurvesSection: React.FC<AccumulationCurvesSectionProps>
               <div className="mt-3 h-14">
                 {hasEntries && last ? (
                   <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full h-full">
-                    <path d={areaD} fill="rgba(255,255,255,0.03)" />
-                    <path d={pathD} fill="none" stroke="#a1a1aa" strokeWidth="1.25" vectorEffect="non-scaling-stroke" />
-                    <circle cx={last.x} cy={last.y} r="2.5" fill="#e4e4e7" />
+                    <defs>
+                      <linearGradient id={`grad-acc-${token.id}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#69aac1" stopOpacity="0.25" />
+                        <stop offset="100%" stopColor="#69aac1" stopOpacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <path d={areaD} fill={`url(#grad-acc-${token.id})`} />
+                    <path d={pathD} fill="none" stroke="#69aac1" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+                    <circle cx={last.x} cy={last.y} r="2.5" fill="#a4c5cf" />
                   </svg>
                 ) : (
-                  <div className="h-full flex items-center justify-center border border-dashed border-white/[0.06] rounded text-[11px] text-zinc-600">
+                  <div className="h-full flex items-center justify-center border border-dashed border-line rounded-lg text-xs text-ink-faint">
                     Aucune transaction
                   </div>
                 )}
               </div>
 
               {hasEntries && (
-                <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500 tabular-nums">
-                  <span>Initial {fmtUnits(initialUnits)}</span>
+                <div className="mt-2 flex items-center justify-between text-[11px] text-ink-dim font-mono tabular-nums">
+                  <span>Initial: {fmtUnits(initialUnits)}</span>
                   <span>{entries.length} tx</span>
                 </div>
               )}

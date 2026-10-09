@@ -1,6 +1,6 @@
 import React from 'react';
 import type { ViewMode, DashboardPage } from '../types/crypto';
-import { Activity, Grid, Monitor, RefreshCw, TrendingUp, Table, Repeat, Zap, Globe, ArrowLeftRight, Wallet } from 'lucide-react';
+import { RefreshCw, Repeat, Table } from 'lucide-react';
 
 interface HeaderProps {
   page: DashboardPage;
@@ -18,6 +18,29 @@ interface HeaderProps {
   onToggleRotation?: () => void;
 }
 
+const NAV: { id: DashboardPage; label: string }[] = [
+  { id: 'solana', label: 'Solana' },
+  { id: 'hyperliquid', label: 'Hyperliquid' },
+  { id: 'global', label: 'Global' },
+  { id: 'cross-pairs', label: 'Cross-Pairs' },
+  { id: 'portfolio', label: 'Portfolio' },
+];
+
+const VIEW_MODES: { id: ViewMode; label: string }[] = [
+  { id: 'focus', label: 'Focus' },
+  { id: 'grid', label: 'Multi-chart' },
+  { id: 'compare', label: '% Perf' },
+];
+
+const ApexMark: React.FC = () => (
+  <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true">
+    <rect width="32" height="32" rx="8" fill="#102127" />
+    <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" fill="none" stroke="#2f4f58" />
+    <path d="M7 21.5 L12.5 15.5 L17 18.5 L25 10" fill="none" stroke="#69aac1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <circle cx="25" cy="10" r="2" fill="#a4c5cf" />
+  </svg>
+);
+
 export const Header: React.FC<HeaderProps> = ({
   page,
   setPage,
@@ -32,313 +55,99 @@ export const Header: React.FC<HeaderProps> = ({
   showRotation,
   onToggleRotation,
 }) => {
+  const feeds = [binanceConnected, bybitConnected, hyperliquidConnected];
+  const liveCount = feeds.filter(Boolean).length;
+  const allLive = liveCount === feeds.length;
+
+  // Chart-specific controls only make sense on the market pages
+  const isMarketPage = page === 'solana' || page === 'hyperliquid' || page === 'global';
+
+  const iconBtn =
+    'inline-flex h-10 w-10 items-center justify-center rounded-lg border border-line-strong bg-surface text-ink-dim transition-colors duration-150 hover:bg-surface-2 hover:text-ink cursor-pointer';
+
   return (
-    <header className="border-b border-slate-800/80 bg-[#0d111a]/95 backdrop-blur-md sticky top-0 z-50 px-4 lg:px-6 py-3">
-      <div className="max-w-[1920px] mx-auto flex flex-col xl:flex-row items-center justify-between gap-3">
-        {/* Brand & Page Navigation Tabs */}
-        <div className="flex flex-col sm:flex-row items-center gap-4 w-full xl:w-auto justify-between xl:justify-start">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl p-0.5 shadow-lg ${
-              page === 'solana'
-                ? 'bg-gradient-to-tr from-purple-600 via-indigo-600 to-emerald-400 shadow-purple-500/25'
-                : page === 'hyperliquid'
-                ? 'bg-gradient-to-tr from-teal-500 via-cyan-400 to-indigo-500 shadow-teal-500/25'
-                : page === 'cross-pairs'
-                ? 'bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-indigo-500/25'
-                : page === 'portfolio'
-                ? 'bg-gradient-to-tr from-emerald-500 via-teal-500 to-indigo-500 shadow-emerald-500/25'
-                : 'bg-gradient-to-tr from-amber-500 via-indigo-600 to-cyan-400 shadow-indigo-500/20'
-            }`}>
-              <div className="w-full h-full bg-[#0b0e14] rounded-[10px] flex items-center justify-center">
-                {page === 'solana' ? (
-                  <Zap className="w-5 h-5 text-emerald-400" />
-                ) : page === 'hyperliquid' ? (
-                  <Activity className="w-5 h-5 text-teal-400" />
-                ) : page === 'cross-pairs' ? (
-                  <ArrowLeftRight className="w-5 h-5 text-indigo-400" />
-                ) : page === 'portfolio' ? (
-                  <Wallet className="w-5 h-5 text-emerald-400" />
-                ) : (
-                  <Globe className="w-5 h-5 text-amber-400" />
-                )}
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold tracking-tight text-white m-0 flex items-center gap-1.5">
-                  Apex <span className={`text-transparent bg-clip-text ${
-                    page === 'solana'
-                      ? 'bg-gradient-to-r from-purple-400 via-emerald-300 to-teal-300'
-                      : page === 'hyperliquid'
-                      ? 'bg-gradient-to-r from-teal-400 via-cyan-300 to-indigo-300'
-                      : page === 'cross-pairs'
-                      ? 'bg-gradient-to-r from-indigo-400 via-purple-300 to-pink-300'
-                      : page === 'portfolio'
-                      ? 'bg-gradient-to-r from-emerald-400 via-teal-300 to-indigo-300'
-                      : 'bg-gradient-to-r from-amber-400 via-indigo-400 to-cyan-400'
-                  }`}>
-                    {page === 'solana' ? 'Solana Hub' : page === 'hyperliquid' ? 'Hyperliquid Hub' : page === 'cross-pairs' ? 'Cross-Pairs Hub' : page === 'portfolio' ? 'Portfolio DCA' : 'Terminal'}
-                  </span>
-                </h1>
-                <span className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded border ${
-                  page === 'solana'
-                    ? 'bg-purple-500/20 text-emerald-300 border-purple-500/30'
-                    : page === 'hyperliquid'
-                    ? 'bg-teal-500/20 text-teal-300 border-teal-500/30'
-                    : page === 'cross-pairs'
-                    ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-                    : page === 'portfolio'
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                    : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-                }`}>
-                  {page === 'solana' ? '100% Solana' : page === 'hyperliquid' ? '100% Hyperliquid' : page === 'cross-pairs' ? '15 Paires Synthétiques' : page === 'portfolio' ? 'DCA & Prix Moyen' : 'Global Hub'}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 flex items-center gap-1.5 flex-wrap">
-                {page === 'solana' ? (
-                  <>
-                    <span className="text-emerald-400 font-semibold">Page Dédiée 100% Solana</span>
-                    <span className="text-slate-600">•</span>
-                    <span className="text-slate-200">SOL • JUP • MET • JTO • PUMP</span>
-                  </>
-                ) : page === 'hyperliquid' ? (
-                  <>
-                    <span className="text-teal-400 font-semibold">Page Dédiée 100% Hyperliquid</span>
-                    <span className="text-slate-600">•</span>
-                    <span className="text-slate-200">HYPE • PURR • HFUN • HYPER • JEFF</span>
-                  </>
-                ) : page === 'cross-pairs' ? (
-                  <>
-                    <span className="text-indigo-400 font-semibold">Paires Synthétiques & Ratio Trading</span>
-                    <span className="text-slate-600">•</span>
-                    <span className="text-slate-200">SOL • SUI • ZEC • MON • HYPE • PENGU (15 Paires Uniques)</span>
-                  </>
-                ) : page === 'portfolio' ? (
-                  <>
-                    <span className="text-emerald-400 font-semibold">Suivi Portefeuille & DCA</span>
-                    <span className="text-slate-600">•</span>
-                    <span className="text-slate-200">Calcul Automatique du Prix Moyen Réel & PnL Live</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Terminal Multi-Exchange</span>
-                    <span className="text-slate-600">•</span>
-                    <span className="text-slate-300">Sui • SOL • ZEC • PENGU • Monad • HYPE • HYPER</span>
-                  </>
-                )}
-              </p>
-            </div>
-          </div>
+    <header className="sticky top-0 z-50 w-full border-b border-line bg-ground/95 backdrop-blur-md">
+      <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-x-5 gap-y-2 px-4 py-3 sm:px-6 lg:h-16 lg:flex-nowrap lg:py-0">
+        {/* Brand + nav */}
+        <div className="flex min-w-0 items-center gap-5">
+          <button onClick={() => setPage('solana')} className="flex shrink-0 items-center gap-2.5 text-ink cursor-pointer">
+            <ApexMark />
+            <span className="text-[17px] font-semibold tracking-[-0.02em] whitespace-nowrap">Apex</span>
+          </button>
 
-          {/* Dedicated Page Tabs (Solana, Hyperliquid, Global, Cross-Pairs, Portfolio DCA) */}
-          <div className="flex items-center bg-[#090d14] border border-slate-800 p-1 rounded-2xl shadow-inner w-full sm:w-auto justify-center flex-wrap gap-1">
-            <button
-              onClick={() => setPage('solana')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${
-                page === 'solana'
-                  ? 'bg-gradient-to-r from-purple-600 via-indigo-600 to-emerald-500 text-white shadow-md shadow-purple-950/40 ring-1 ring-emerald-400/40'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5 text-emerald-400" />
-              <span>🪐 Solana (5)</span>
-            </button>
-
-            <button
-              onClick={() => setPage('hyperliquid')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${
-                page === 'hyperliquid'
-                  ? 'bg-gradient-to-r from-teal-600 via-cyan-600 to-indigo-600 text-white shadow-md shadow-teal-950/40 ring-1 ring-teal-400/40'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Activity className="w-3.5 h-3.5 text-teal-400" />
-              <span>⚡ Hyperliquid (5)</span>
-            </button>
-
-            <button
-              onClick={() => setPage('global')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${
-                page === 'global'
-                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-md shadow-indigo-950/40'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Globe className="w-3.5 h-3.5 text-blue-400" />
-              <span>🌐 Globaux (7)</span>
-            </button>
-
-            <button
-              onClick={() => setPage('cross-pairs')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${
-                page === 'cross-pairs'
-                  ? 'bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white shadow-md shadow-purple-950/40 ring-1 ring-indigo-400/40'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-300" />
-              <span>🔄 Cross-Pairs (15)</span>
-            </button>
-
-            <button
-              onClick={() => setPage('portfolio')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer select-none ${
-                page === 'portfolio'
-                  ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 text-white shadow-md shadow-emerald-950/40 ring-1 ring-emerald-400/40'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <Wallet className="w-3.5 h-3.5 text-emerald-400" />
-              <span>💼 Portfolio DCA</span>
-            </button>
-          </div>
-
-          {/* Quick status on mobile */}
-          <div className="flex md:hidden items-center gap-2">
-            <button
-              onClick={onRefresh}
-              className="p-2 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 transition"
-              title="Refresh"
-            >
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          </div>
+          <nav aria-label="Main navigation" className="flex items-center gap-1 overflow-x-auto">
+            {NAV.map((item) => {
+              const active = page === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setPage(item.id)}
+                  className={`relative inline-flex h-10 shrink-0 items-center rounded-lg px-3 text-sm font-semibold transition-colors cursor-pointer ${
+                    active ? 'text-ink' : 'text-ink-dim hover:text-ink'
+                  }`}
+                >
+                  {item.label}
+                  {active && <span className="absolute inset-x-3 -bottom-[13px] hidden h-0.5 rounded-full bg-accent lg:block" />}
+                </button>
+              );
+            })}
+          </nav>
         </div>
 
-        {/* Live Exchange Status Beacons & View Switcher */}
-        <div className="flex flex-wrap items-center gap-2 lg:gap-4 w-full md:w-auto justify-end">
-          <div className="flex items-center gap-2 bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-1.5 shadow-inner">
-            {/* Binance Beacon */}
-            <div className="flex items-center gap-2 px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs font-medium">
-              <div className="relative flex items-center justify-center">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    binanceConnected ? 'bg-amber-400' : 'bg-red-400'
+        {/* Right controls */}
+        <div className="flex items-center gap-2.5">
+          {isMarketPage && (
+            <div className="hidden items-center gap-1 rounded-lg border border-line-strong bg-surface p-1 md:flex">
+              {VIEW_MODES.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => setViewMode(m.id)}
+                  className={`h-8 rounded-md px-3 text-sm font-medium transition-colors cursor-pointer ${
+                    viewMode === m.id ? 'bg-line-strong text-ink-mid' : 'text-ink-dim hover:text-ink'
                   }`}
-                />
-                {binanceConnected && (
-                  <span className="absolute w-3 h-3 rounded-full bg-amber-400/40 animate-ping" />
-                )}
-              </div>
-              <span className="text-amber-300 font-semibold">Binance</span>
-              <span className="text-[10px] text-amber-400/70 hidden sm:inline">WS Live</span>
+                >
+                  {m.label}
+                </button>
+              ))}
             </div>
+          )}
 
-            {/* Bybit Beacon */}
-            <div className="flex items-center gap-2 px-2 py-0.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 text-xs font-medium">
-              <div className="relative flex items-center justify-center">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    bybitConnected ? 'bg-cyan-400' : 'bg-red-400'
-                  }`}
-                />
-                {bybitConnected && (
-                  <span className="absolute w-3 h-3 rounded-full bg-cyan-400/40 animate-ping" />
-                )}
-              </div>
-              <span className="text-cyan-300 font-semibold">Bybit</span>
-              <span className="text-[10px] text-cyan-400/70 hidden sm:inline">V5 Feed</span>
-            </div>
-
-            {/* Hyperliquid Beacon */}
-            <div className="flex items-center gap-2 px-2 py-0.5 rounded-lg bg-teal-500/10 border border-teal-500/20 text-xs font-medium">
-              <div className="relative flex items-center justify-center">
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    hyperliquidConnected ? 'bg-teal-400' : 'bg-red-400'
-                  }`}
-                />
-                {hyperliquidConnected && (
-                  <span className="absolute w-3 h-3 rounded-full bg-teal-400/40 animate-ping" />
-                )}
-              </div>
-              <span className="text-teal-300 font-semibold">Hyperliquid</span>
-              <span className="text-[10px] text-teal-400/70 hidden sm:inline">L1 Feed</span>
-            </div>
-          </div>
-
-          {/* View Mode Toggle: Focus vs Multi-Chart vs % Compare */}
-          <div className="flex items-center bg-slate-900/90 border border-slate-800 rounded-xl p-1">
-            <button
-              onClick={() => setViewMode('focus')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
-                viewMode === 'focus'
-                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="Focus View: Single Token Deep Dive & Order Book"
-            >
-              <Monitor className="w-3.5 h-3.5" />
-              <span>Focus</span>
-            </button>
-
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
-                viewMode === 'grid'
-                  ? 'bg-gradient-to-r from-indigo-600 to-indigo-700 text-white shadow-md shadow-indigo-600/30'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="Multi-Chart View: 7 Individual Real-Time Candlestick Charts"
-            >
-              <Grid className="w-3.5 h-3.5" />
-              <span>Multi-Chart</span>
-            </button>
-
-            <button
-              onClick={() => setViewMode('compare')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer ${
-                viewMode === 'compare'
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/30 font-semibold'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-              title="Comparison View: All Tokens Gain / Loss % Normalized Curves"
-            >
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-300" />
-              <span>% Gain / Loss</span>
-            </button>
-          </div>
-
-          {/* Swap Rotation Scanner Toggle */}
-          {onToggleRotation && (
+          {isMarketPage && onToggleRotation && (
             <button
               onClick={onToggleRotation}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-                showRotation
-                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm'
-                  : 'bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-slate-700/60'
-              }`}
-              title="Scanner de Rotation & Swap Profitable"
+              title="Scanner de rotation"
+              className={`${iconBtn} ${showRotation ? '!border-accent !text-ink-mid' : ''}`}
             >
-              <Repeat className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Swap Rotation</span>
+              <Repeat className="h-4 w-4" />
             </button>
           )}
 
-          {/* Tableau 24h Toggle */}
-          {onToggleTable && (
+          {isMarketPage && onToggleTable && (
             <button
               onClick={onToggleTable}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-                showTable
-                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm'
-                  : 'bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border-slate-700/60'
-              }`}
-              title="Afficher / Masquer le Tableau 24h"
+              title="Tableau 24h"
+              className={`${iconBtn} ${showTable ? '!border-accent !text-ink-mid' : ''}`}
             >
-              <Table className="w-3.5 h-3.5 text-amber-400" />
-              <span>Tableau 24h</span>
+              <Table className="h-4 w-4" />
             </button>
           )}
 
-          {/* Refresh Action */}
-          <button
-            onClick={onRefresh}
-            className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium border border-slate-700/60 transition cursor-pointer"
-            title="Reload Market Data"
+          <div
+            className="hidden h-10 items-center gap-2 rounded-lg border border-line-strong bg-surface px-3 text-sm text-ink-dim sm:inline-flex"
+            title={`Binance ${binanceConnected ? 'OK' : 'off'} · Bybit ${bybitConnected ? 'OK' : 'off'} · Hyperliquid ${hyperliquidConnected ? 'OK' : 'off'}`}
           >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Sync</span>
+            <span className="relative flex h-2 w-2">
+              {allLive && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-up/60" />}
+              <span className={`relative inline-flex h-2 w-2 rounded-full ${allLive ? 'bg-up' : 'bg-down'}`} />
+            </span>
+            <span>Live</span>
+            <kbd className="rounded-sm border border-line bg-well px-1.5 py-0.5 font-mono text-[10px] text-ink-dim">
+              {liveCount}/{feeds.length}
+            </kbd>
+          </div>
+
+          <button onClick={onRefresh} title="Synchroniser les données" className={iconBtn}>
+            <RefreshCw className="h-4 w-4" />
           </button>
         </div>
       </div>

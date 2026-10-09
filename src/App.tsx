@@ -407,7 +407,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#090d14] text-slate-100 flex flex-col selection:bg-indigo-500/30 selection:text-indigo-200">
+    <div className="min-h-screen bg-ground text-ink flex flex-col selection:bg-accent/30 selection:text-ink">
       {/* Header */}
       <Header
         page={activePage}
@@ -430,13 +430,15 @@ export const App: React.FC = () => {
         onToggleTable={() => setShowMarketTable(!showMarketTable)}
       />
 
-      {/* Horizontal Ticker Carousel (Exclusively 5 Solana tokens on Solana page, 7 on Global page) */}
-      <TickerBar
-        tokens={currentTokens}
-        tickers={tickers}
-        selectedTokenId={selectedToken.id}
-        onSelectToken={handleSelectToken}
-      />
+      {/* Horizontal Ticker Carousel (hidden on Portfolio: prices are already in the positions table) */}
+      {activePage !== 'portfolio' && (
+        <TickerBar
+          tokens={currentTokens}
+          tickers={tickers}
+          selectedTokenId={selectedToken.id}
+          onSelectToken={handleSelectToken}
+        />
+      )}
 
       {/* Main Body */}
       <main className="flex-1 flex flex-col">
