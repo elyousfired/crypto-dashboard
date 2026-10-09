@@ -49,15 +49,17 @@ import { MarketTable24h } from './components/MarketTable24h';
 import { SolanaEcosystemSection } from './components/SolanaEcosystemSection';
 import { HyperliquidEcosystemSection } from './components/HyperliquidEcosystemSection';
 import { CrossPairsPage } from './components/CrossPairsPage';
+import { PortfolioDcaPage } from './components/PortfolioDcaPage';
 import { CROSS_TOKENS } from './config/crossPairs';
 
 export const App: React.FC = () => {
-  // Navigation: Dedicated Page ('solana' | 'hyperliquid' | 'global' | 'cross-pairs')
+  // Navigation: Dedicated Page ('solana' | 'hyperliquid' | 'global' | 'cross-pairs' | 'portfolio')
   const [activePage, setActivePage] = useState<DashboardPage>(() => {
     if (typeof window !== 'undefined') {
       if (window.location.hash === '#global') return 'global';
       if (window.location.hash === '#hyperliquid') return 'hyperliquid';
       if (window.location.hash === '#cross-pairs' || window.location.hash === '#pairs') return 'cross-pairs';
+      if (window.location.hash === '#portfolio' || window.location.hash === '#dca') return 'portfolio';
     }
     return 'solana'; // Defaults to dedicated Solana page
   });
@@ -75,6 +77,7 @@ export const App: React.FC = () => {
       if (window.location.hash === '#global') return GLOBAL_TOKENS[0];
       if (window.location.hash === '#hyperliquid') return HYPERLIQUID_TOKENS[0];
       if (window.location.hash === '#cross-pairs' || window.location.hash === '#pairs') return GLOBAL_TOKENS[1]; // SOL
+      if (window.location.hash === '#portfolio' || window.location.hash === '#dca') return GLOBAL_TOKENS[1]; // SOL
     }
     return SOLANA_TOKENS[0];
   });
@@ -96,6 +99,8 @@ export const App: React.FC = () => {
       setSelectedToken(HYPERLIQUID_TOKENS[0]); // HYPE
     } else if (page === 'cross-pairs') {
       setSelectedToken(GLOBAL_TOKENS[1]); // SOL
+    } else if (page === 'portfolio') {
+      setSelectedToken(GLOBAL_TOKENS[1]); // SOL
     } else {
       setSelectedToken(GLOBAL_TOKENS[0]); // SUI
     }
@@ -112,6 +117,9 @@ export const App: React.FC = () => {
         setSelectedToken(HYPERLIQUID_TOKENS[0]);
       } else if (hash === '#cross-pairs' || hash === '#pairs') {
         setActivePage('cross-pairs');
+        setSelectedToken(GLOBAL_TOKENS[1]);
+      } else if (hash === '#portfolio' || hash === '#dca') {
+        setActivePage('portfolio');
         setSelectedToken(GLOBAL_TOKENS[1]);
       } else if (hash === '#solana') {
         setActivePage('solana');
@@ -432,7 +440,9 @@ export const App: React.FC = () => {
 
       {/* Main Body */}
       <main className="flex-1 flex flex-col">
-        {activePage === 'cross-pairs' ? (
+        {activePage === 'portfolio' ? (
+          <PortfolioDcaPage tickers={tickers} />
+        ) : activePage === 'cross-pairs' ? (
           <CrossPairsPage
             tickers={tickers}
             multiCandles={multiCandles}
@@ -588,6 +598,10 @@ export const App: React.FC = () => {
           ) : activePage === 'cross-pairs' ? (
             <span className="text-indigo-400 font-semibold">
               Page Dédiée 15 Paires Synthétiques : Ratio Trading SOL • SUI • ZEC • MON • HYPE • PENGU
+            </span>
+          ) : activePage === 'portfolio' ? (
+            <span className="text-emerald-400 font-semibold">
+              Page Dédiée Suivi Portefeuille & DCA : Prix Moyens Pondérés & PnL Réel en Direct
             </span>
           ) : (
             <>

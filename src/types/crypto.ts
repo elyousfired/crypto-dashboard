@@ -63,13 +63,26 @@ export interface OrderBookData {
 export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
 export type ChartType = 'candlestick' | 'line' | 'area';
 export type ViewMode = 'focus' | 'grid' | 'compare';
-export type DashboardPage = 'solana' | 'hyperliquid' | 'global' | 'cross-pairs';
+export type DashboardPage = 'solana' | 'hyperliquid' | 'global' | 'cross-pairs' | 'portfolio';
 
 export interface Stats30d {
   high30d: number;
   low30d: number;
   dropFromHighPct: number; // Negative percentage representing dip/drawdown from 30D High
   change30dPct: number;    // Net percentage change over the 30-day period
+}
+
+export interface PortfolioEntry {
+  id: string;
+  tokenId: string;
+  symbol: string;
+  baseAsset: string;
+  buyPrice: number;
+  quantity: number;
+  totalUsd: number;
+  timestamp: number;
+  dateLabel: string;
+  note?: string;
 }
 
 
