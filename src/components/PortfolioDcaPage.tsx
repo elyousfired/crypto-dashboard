@@ -30,7 +30,78 @@ export interface SimpleTransaction {
 const STORAGE_KEY = 'apex_simple_dca_portfolio_v4';
 const BASKET_STORAGE_KEY = 'apex_custom_basket_tokens_v2';
 
-const POPULAR_SUGGESTIONS = ['BTC', 'ETH', 'JUP', 'MET', 'PUMP', 'DOGE', 'NEAR', 'AVAX'];
+export const COMMON_ALIASES: Record<string, { symbol: string; name: string }> = {
+  jupiter: { symbol: 'JUP', name: 'Jupiter' },
+  jup: { symbol: 'JUP', name: 'Jupiter' },
+  solana: { symbol: 'SOL', name: 'Solana' },
+  sol: { symbol: 'SOL', name: 'Solana' },
+  bitcoin: { symbol: 'BTC', name: 'Bitcoin' },
+  btc: { symbol: 'BTC', name: 'Bitcoin' },
+  ethereum: { symbol: 'ETH', name: 'Ethereum' },
+  eth: { symbol: 'ETH', name: 'Ethereum' },
+  dogecoin: { symbol: 'DOGE', name: 'Dogecoin' },
+  doge: { symbol: 'DOGE', name: 'Dogecoin' },
+  worldcoin: { symbol: 'WLD', name: 'Worldcoin' },
+  wld: { symbol: 'WLD', name: 'Worldcoin' },
+  pudgy: { symbol: 'PENGU', name: 'Pudgy Penguins' },
+  pengu: { symbol: 'PENGU', name: 'Pudgy Penguins' },
+  monad: { symbol: 'MON', name: 'Monad' },
+  mon: { symbol: 'MON', name: 'Monad' },
+  hyperliquid: { symbol: 'HYPE', name: 'Hyperliquid' },
+  hype: { symbol: 'HYPE', name: 'Hyperliquid' },
+  zcash: { symbol: 'ZEC', name: 'Zcash' },
+  zec: { symbol: 'ZEC', name: 'Zcash' },
+  meteora: { symbol: 'MET', name: 'Meteora' },
+  met: { symbol: 'MET', name: 'Meteora' },
+  jito: { symbol: 'JTO', name: 'Jito' },
+  jto: { symbol: 'JTO', name: 'Jito' },
+  pump: { symbol: 'PUMP', name: 'Pump.fun' },
+  cardano: { symbol: 'ADA', name: 'Cardano' },
+  ada: { symbol: 'ADA', name: 'Cardano' },
+  ripple: { symbol: 'XRP', name: 'XRP' },
+  xrp: { symbol: 'XRP', name: 'XRP' },
+  avalanche: { symbol: 'AVAX', name: 'Avalanche' },
+  avax: { symbol: 'AVAX', name: 'Avalanche' },
+  chainlink: { symbol: 'LINK', name: 'Chainlink' },
+  link: { symbol: 'LINK', name: 'Chainlink' },
+  polygon: { symbol: 'POL', name: 'Polygon' },
+  matic: { symbol: 'POL', name: 'Polygon' },
+  pol: { symbol: 'POL', name: 'Polygon' },
+  shiba: { symbol: 'SHIB', name: 'Shiba Inu' },
+  shib: { symbol: 'SHIB', name: 'Shiba Inu' },
+  pepe: { symbol: 'PEPE', name: 'Pepe' },
+  near: { symbol: 'NEAR', name: 'Near Protocol' },
+  sui: { symbol: 'SUI', name: 'Sui' },
+  dydx: { symbol: 'DYDX', name: 'dYdX' },
+  ondo: { symbol: 'ONDO', name: 'Ondo Finance' },
+  render: { symbol: 'RENDER', name: 'Render' },
+  rndr: { symbol: 'RENDER', name: 'Render' },
+  binance: { symbol: 'BNB', name: 'BNB' },
+  bnb: { symbol: 'BNB', name: 'BNB' },
+  tron: { symbol: 'TRX', name: 'TRON' },
+  trx: { symbol: 'TRX', name: 'TRON' },
+  uniswap: { symbol: 'UNI', name: 'Uniswap' },
+  uni: { symbol: 'UNI', name: 'Uniswap' },
+  aave: { symbol: 'AAVE', name: 'Aave' },
+  aptos: { symbol: 'APT', name: 'Aptos' },
+  apt: { symbol: 'APT', name: 'Aptos' },
+  fantom: { symbol: 'FTM', name: 'Fantom' },
+  ftm: { symbol: 'FTM', name: 'Fantom' },
+  sonic: { symbol: 'S', name: 'Sonic' },
+  injective: { symbol: 'INJ', name: 'Injective' },
+  inj: { symbol: 'INJ', name: 'Injective' },
+  sei: { symbol: 'SEI', name: 'Sei' },
+  bittensor: { symbol: 'TAO', name: 'Bittensor' },
+  tao: { symbol: 'TAO', name: 'Bittensor' },
+  arbitrum: { symbol: 'ARB', name: 'Arbitrum' },
+  arb: { symbol: 'ARB', name: 'Arbitrum' },
+  optimism: { symbol: 'OP', name: 'Optimism' },
+  op: { symbol: 'OP', name: 'Optimism' },
+  berachain: { symbol: 'BERA', name: 'Berachain' },
+  bera: { symbol: 'BERA', name: 'Berachain' },
+};
+
+const POPULAR_SUGGESTIONS = ['BTC', 'ETH', 'JUP', 'SOL', 'SUI', 'DOGE', 'NEAR', 'AVAX', 'WLD', 'DYDX'];
 
 // ---------- Formatting helpers ----------
 const fmtPrice = (p: number) => {
@@ -441,37 +512,62 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     }));
   };
 
-  // Add Token to Basket
+  // Add Token to Basket with intelligent alias resolution (e.g. jupiter -> JUP, solana -> SOL)
   const handleAddTokenToBasket = (rawSymbol: string) => {
-    const clean = rawSymbol.trim().toUpperCase().replace(/\/?USDT$/, '');
-    if (!clean) return;
+    const raw = rawSymbol.trim();
+    if (!raw) return;
 
-    const lowerId = clean.toLowerCase();
+    const lower = raw.toLowerCase();
+    const cleanUpper = raw.toUpperCase().replace(/\/?USDT$/, '').replace(/\/?USDC$/, '');
 
-    if (basketTokens.some((t) => t.id === lowerId || t.baseAsset.toUpperCase() === clean)) {
-      alert(`${clean} est déjà dans le panier.`);
+    // Resolve alias or default to clean uppercase symbol
+    const alias = COMMON_ALIASES[lower];
+    const targetSymbol = alias ? alias.symbol : cleanUpper;
+    const targetName = alias ? alias.name : cleanUpper;
+    const targetId = targetSymbol.toLowerCase();
+
+    // Check if already in basket
+    const alreadyExists = basketTokens.some(
+      (t) =>
+        t.id.toLowerCase() === targetId ||
+        t.baseAsset.toUpperCase() === targetSymbol ||
+        t.name.toLowerCase() === targetName.toLowerCase() ||
+        t.name.toLowerCase() === lower ||
+        t.id.toLowerCase() === lower
+    );
+
+    if (alreadyExists) {
+      alert(`${targetSymbol} (${targetName}) est déjà dans le panier.`);
       return;
     }
 
-    const found = TOKENS.find((t) => t.id === lowerId || t.baseAsset.toUpperCase() === clean);
+    // Try finding in TOKENS catalog
+    const found = TOKENS.find(
+      (t) =>
+        t.id.toLowerCase() === targetId ||
+        t.baseAsset.toUpperCase() === targetSymbol ||
+        t.name.toLowerCase() === lower ||
+        t.name.toLowerCase() === targetName.toLowerCase()
+    );
 
     const newToken: TokenConfig = found || {
-      id: lowerId,
-      name: clean,
-      symbol: `${clean}USDT`,
-      displaySymbol: `${clean} / USDT`,
-      baseAsset: clean,
+      id: targetId,
+      name: targetName,
+      symbol: `${targetSymbol}USDT`,
+      displaySymbol: `${targetSymbol} / USDT`,
+      baseAsset: targetSymbol,
       quoteAsset: 'USDT',
       exchange: 'binance',
       precision: 2,
       color: '#71717a',
       accentGradient: 'from-zinc-600 to-zinc-700',
-      description: `${clean}`,
+      description: targetName,
     };
 
     setBasketTokens((prev) => [...prev, newToken]);
     setNewSymbolInput('');
     setShowAddTokenBar(false);
+
     fetchUniversalTicker(newToken).then((data) => {
       if (data) {
         setCustomTickers((prev) => ({
@@ -485,6 +581,43 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
     });
   };
 
+  // Dynamic autocomplete suggestions when adding a token
+  const addTokenSuggestions = useMemo(() => {
+    const q = newSymbolInput.trim().toLowerCase();
+    if (!q || q.length < 1) return [];
+
+    const matches: { symbol: string; name: string }[] = [];
+    const seen = new Set<string>();
+
+    // 1. From TOKENS
+    TOKENS.forEach((t) => {
+      if (
+        t.baseAsset.toLowerCase().includes(q) ||
+        t.name.toLowerCase().includes(q) ||
+        t.id.toLowerCase().includes(q)
+      ) {
+        const inBasket = basketTokens.some((b) => b.id === t.id || b.baseAsset === t.baseAsset);
+        if (!inBasket && !seen.has(t.baseAsset)) {
+          seen.add(t.baseAsset);
+          matches.push({ symbol: t.baseAsset, name: t.name });
+        }
+      }
+    });
+
+    // 2. From COMMON_ALIASES
+    Object.entries(COMMON_ALIASES).forEach(([k, v]) => {
+      if (k.includes(q) || v.name.toLowerCase().includes(q) || v.symbol.toLowerCase().includes(q)) {
+        const inBasket = basketTokens.some((b) => b.baseAsset.toUpperCase() === v.symbol);
+        if (!inBasket && !seen.has(v.symbol)) {
+          seen.add(v.symbol);
+          matches.push(v);
+        }
+      }
+    });
+
+    return matches.slice(0, 6);
+  }, [newSymbolInput, basketTokens]);
+
   // Remove Token from Basket
   const handleRemoveTokenFromBasket = (token: TokenConfig) => {
     if (basketTokens.length <= 1) {
@@ -494,8 +627,8 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
     const txCount = (entriesMap[token.id] || []).length;
     const confirmMsg = txCount > 0
-      ? `Retirer ${token.baseAsset} du panier ? Ses ${txCount} transactions seront supprimées.`
-      : `Retirer ${token.baseAsset} du panier ?`;
+      ? `Retirer ${token.baseAsset} de la liste ? Ses ${txCount} transactions enregistrées seront supprimées.`
+      : `Retirer ${token.baseAsset} de la liste ?`;
 
     if (window.confirm(confirmMsg)) {
       setBasketTokens((prev) => prev.filter((t) => t.id !== token.id));
@@ -778,9 +911,14 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
 
   const visibleStats = useMemo(() => {
     const q = search.trim().toLowerCase();
+    const aliasSym = COMMON_ALIASES[q]?.symbol.toLowerCase();
     const filtered = q
       ? tokenStats.filter(
-          (s) => s.token.baseAsset.toLowerCase().includes(q) || s.token.name.toLowerCase().includes(q)
+          (s) =>
+            s.token.baseAsset.toLowerCase().includes(q) ||
+            s.token.name.toLowerCase().includes(q) ||
+            s.token.id.toLowerCase().includes(q) ||
+            (aliasSym && s.token.baseAsset.toLowerCase() === aliasSym)
         )
       : tokenStats;
     const sorted = [...filtered];
@@ -914,14 +1052,14 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
             <input
               autoFocus
               type="text"
-              placeholder="Symbole : BTC, ETH, NEAR…"
+              placeholder="Symbole ou nom : JUP, Jupiter, SOL, BTC, DOGE…"
               value={newSymbolInput}
               onChange={(e) => setNewSymbolInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleAddTokenToBasket(newSymbolInput);
                 if (e.key === 'Escape') setShowAddTokenBar(false);
               }}
-              className={`${inputCls} !h-11 uppercase`}
+              className={`${inputCls} !h-11`}
             />
             <button onClick={() => handleAddTokenToBasket(newSymbolInput)} className={`${btnPrimary} h-11 shrink-0`}>
               Ajouter
@@ -933,6 +1071,25 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
               <X className="h-4 w-4" />
             </button>
           </div>
+
+          {/* Autocomplete Suggestions while typing */}
+          {addTokenSuggestions.length > 0 && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-ink-faint">Correspondances :</span>
+              {addTokenSuggestions.map((s) => (
+                <button
+                  key={s.symbol}
+                  type="button"
+                  onClick={() => handleAddTokenToBasket(s.symbol)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent hover:bg-accent/20 cursor-pointer transition-colors"
+                >
+                  <span>{s.symbol}</span>
+                  <span className="text-ink-dim font-normal">({s.name})</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="mr-1 text-sm text-ink-dim">Populaires</span>
             {POPULAR_SUGGESTIONS.map((sym) => {
@@ -1037,14 +1194,39 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
                   <th className="px-3 py-3 text-right font-medium">Investi</th>
                   <th className="px-3 py-3 text-right font-medium">Valeur</th>
                   <th className="px-3 py-3 text-right font-medium">P&L vs moyen</th>
-                  <th className="w-12" />
+                  <th className="w-20 px-4 py-3 text-right font-medium">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleStats.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-5 py-10 text-center text-sm text-ink-faint">
-                      Aucun actif ne correspond à « {search} ».
+                    <td colSpan={8} className="px-5 py-10 text-center">
+                      <div className="max-w-md mx-auto space-y-3">
+                        <p className="text-sm text-ink-dim">
+                          {search.trim() ? (
+                            <>
+                              Aucun actif ne correspond à « <span className="font-semibold text-ink">{search}</span> » dans votre panier actuel.
+                            </>
+                          ) : (
+                            'Aucun actif dans le panier.'
+                          )}
+                        </p>
+                        {search.trim() && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleAddTokenToBasket(search);
+                              setSearch('');
+                            }}
+                            className={`${btnPrimary} inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold cursor-pointer shadow-lg`}
+                          >
+                            <Plus className="h-4 w-4" />
+                            <span>
+                              Ajouter « {COMMON_ALIASES[search.trim().toLowerCase()]?.name || search.trim().toUpperCase()} » au portfolio
+                            </span>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )}
@@ -1103,8 +1285,23 @@ export const PortfolioDcaPage: React.FC<PortfolioDcaPageProps> = ({ tickers }) =
                             <span className="text-ink-faint">—</span>
                           )}
                         </td>
-                        <td className="pr-4 py-3.5 text-right">
-                          <ChevronDown className={`inline h-4 w-4 text-ink-dim transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                        <td className="pr-4 py-3.5 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleRemoveTokenFromBasket(item.token);
+                              }}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-ink-faint hover:border-down/40 hover:bg-down/10 hover:text-down transition-colors cursor-pointer"
+                              title={`Supprimer ${item.token.baseAsset} de la liste`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                            <div className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-ink-dim">
+                              <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                            </div>
+                          </div>
                         </td>
                       </tr>
 
