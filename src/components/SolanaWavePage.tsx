@@ -3,7 +3,7 @@ import type { TickerData, TokenConfig, CandleData } from '../types/crypto';
 import { SOLANA_WAVE_TOKENS } from '../config/tokens';
 import { fetchBinanceKlines } from '../services/binanceService';
 import { fetchBybitKlines } from '../services/bybitService';
-import { Activity, Waves, TrendingUp, Info, RefreshCw, Zap, Clock, Grid, Target, RotateCcw } from 'lucide-react';
+import { Activity, Waves, TrendingUp, Info, RefreshCw, Zap, Clock, Grid, Target, RotateCcw, Play, Pause, DollarSign, History, Sparkles } from 'lucide-react';
 
 interface SolanaWavePageProps {
   tickers: Record<string, TickerData>;
@@ -16,6 +16,60 @@ interface TokenReturnSeries {
   returns: number[]; // % return from start of window
   prices: number[];
 }
+
+interface TokenPosition {
+  tokenId: string;
+  symbol: string;
+  baseAsset: string;
+  name: string;
+  color: string;
+  quantity: number;
+  entryPrice: number;
+  referencePrice: number;
+  initialUsd: number;
+  totalSoldUsd: number;
+  totalBoughtUsd: number;
+  tradesCount: number;
+}
+
+interface TradeLogItem {
+  id: string;
+  timestamp: number;
+  sellerToken: string;
+  sellerColor: string;
+  sellerPrice: number;
+  sellerGainPct: number;
+  soldAmountUsd: number;
+  buyerToken: string;
+  buyerColor: string;
+  buyerPrice: number;
+  buyerDipPct: number;
+  boughtQty: number;
+}
+
+interface SimulationState {
+  isActive: boolean;
+  startTime: number;
+  initialTotalCapital: number;
+  initialPerToken: number;
+  triggerGainPct: number;
+  sellSharePct: number;
+  positions: Record<string, TokenPosition>;
+  tradeLogs: TradeLogItem[];
+  totalTrades: number;
+}
+
+const getInitialSimulationState = (): SimulationState => ({
+  isActive: true,
+  startTime: Date.now(),
+  initialTotalCapital: 80,
+  initialPerToken: 10,
+  triggerGainPct: 1.0,
+  sellSharePct: 33,
+  positions: {},
+  tradeLogs: [],
+  totalTrades: 0,
+});
 
 export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
   // 1. Timeframe selection
@@ -37,6 +91,17 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
   const [showTokenGrid, setShowTokenGrid] = useState<boolean>(true);
   const [gridTargetPercent, setGridTargetPercent] = useState<number>(2.0);
 
+  // 5. Live Simulation State ($10 per token / 33% rotation at +1%)
+  const [simState, setSimState] = useState<SimulationState>(() => {
+    try {
+      const saved = localStorage.getItem('solana_wave_sim_v1');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // fallback
+    }
+    return getInitialSimulationState();
+  });
+
   // Toggle token inclusion
   const toggleToken = (id: string) => {
     setActiveTokenIds((prev) => {
@@ -52,6 +117,307 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
   };
 
   const selectAllTokens = () => setActiveTokenIds(SOLANA_WAVE_TOKENS.map((t) => t.id));
+
+  // 5.1 Initialize simulation positions with $10 in each token once tickers are loaded
+  useEffect(() => {
+    if (Object.keys(simState.positions).length === 0 && Object.keys(tickers).length > 0) {
+      const initialPositions: Record<string, TokenPosition> = {};
+      let hasValidPrice = false;
+
+      SOLANA_WAVE_TOKENS.forEach((token) => {
+        const px = tickers[token.symbol]?.lastPrice;
+        if (px && px > 0) hasValidPrice = true;
+        const validPrice = px && px > 0 ? px : 1;
+        initialPositions[token.id] = {
+          tokenId: token.id,
+          symbol: token.symbol,
+          baseAsset: token.baseAsset,
+          name: token.name,
+          color: token.color,
+          quantity: 10 / validPrice,
+          entryPrice: validPrice,
+          referencePrice: validPrice,
+          initialUsd: 10,
+          totalSoldUsd: 0,
+          totalBoughtUsd: 10,
+          tradesCount: 0,
+        };
+      });
+
+      if (hasValidPrice) {
+        setSimState((prev) => {
+          const next = { ...prev, positions: initialPositions };
+          try {
+            localStorage.setItem('solana_wave_sim_v1', JSON.stringify(next));
+          } catch {
+            // ignore
+          }
+          return next;
+        });
+      }
+    }
+  }, [tickers, simState.positions]);
+
+  // 5.2 Monitor live price ticks & execute +1% -> 33% rotation to deepest dip
+  useEffect(() => {
+    if (!simState.isActive || Object.keys(simState.positions).length === 0 || Object.keys(tickers).length === 0) return;
+
+    let updated = false;
+    const newPositions = { ...simState.positions };
+    const newLogs = [...simState.tradeLogs];
+    let newTradesCount = simState.totalTrades;
+
+    // Check tokens that gained >= triggerGainPct (1.0%) from their reference price
+    const eligibleSellers: { tokenId: string; gainPct: number; currentPrice: number }[] = [];
+
+    SOLANA_WAVE_TOKENS.forEach((token) => {
+      const pos = newPositions[token.id];
+      const liveTick = tickers[token.symbol];
+      if (!pos || !liveTick?.lastPrice || pos.quantity <= 0) return;
+
+      const currentPrice = liveTick.lastPrice;
+      const gainPct = ((currentPrice - pos.referencePrice) / pos.referencePrice) * 100;
+
+      if (gainPct >= simState.triggerGainPct) {
+        eligibleSellers.push({ tokenId: token.id, gainPct, currentPrice });
+      }
+    });
+
+    if (eligibleSellers.length > 0) {
+      eligibleSellers.sort((a, b) => b.gainPct - a.gainPct);
+      const seller = eligibleSellers[0];
+      const sellerPos = newPositions[seller.tokenId];
+
+      // Find the deepest dipping token among others
+      let deepestDipId: string | null = null;
+      let minGainPct = Infinity;
+
+      SOLANA_WAVE_TOKENS.forEach((token) => {
+        if (token.id === seller.tokenId) return;
+        const pos = newPositions[token.id];
+        const liveTick = tickers[token.symbol];
+        if (!pos || !liveTick?.lastPrice) return;
+
+        const currentPrice = liveTick.lastPrice;
+        const gainPct = ((currentPrice - pos.referencePrice) / pos.referencePrice) * 100;
+
+        if (gainPct < minGainPct) {
+          minGainPct = gainPct;
+          deepestDipId = token.id;
+        }
+      });
+
+      if (deepestDipId && sellerPos) {
+        const buyerTokenConfig = SOLANA_WAVE_TOKENS.find((t) => t.id === deepestDipId)!;
+        const buyerPos = newPositions[deepestDipId];
+        const buyerPrice = tickers[buyerTokenConfig.symbol]?.lastPrice || buyerPos.referencePrice;
+
+        const soldQty = sellerPos.quantity * (simState.sellSharePct / 100);
+        const cashProceeds = soldQty * seller.currentPrice;
+        const remainingSellerQty = sellerPos.quantity - soldQty;
+        const boughtQty = cashProceeds / buyerPrice;
+
+        newPositions[seller.tokenId] = {
+          ...sellerPos,
+          quantity: remainingSellerQty,
+          referencePrice: seller.currentPrice,
+          totalSoldUsd: sellerPos.totalSoldUsd + cashProceeds,
+          tradesCount: sellerPos.tradesCount + 1,
+        };
+
+        newPositions[deepestDipId] = {
+          ...buyerPos,
+          quantity: buyerPos.quantity + boughtQty,
+          totalBoughtUsd: buyerPos.totalBoughtUsd + cashProceeds,
+          tradesCount: buyerPos.tradesCount + 1,
+          referencePrice:
+            (buyerPos.quantity * buyerPos.referencePrice + boughtQty * buyerPrice) /
+            (buyerPos.quantity + boughtQty),
+        };
+
+        const logEntry: TradeLogItem = {
+          id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          timestamp: Date.now(),
+          sellerToken: sellerPos.baseAsset,
+          sellerColor: sellerPos.color,
+          sellerPrice: seller.currentPrice,
+          sellerGainPct: seller.gainPct,
+          soldAmountUsd: cashProceeds,
+          buyerToken: buyerPos.baseAsset,
+          buyerColor: buyerPos.color,
+          buyerPrice: buyerPrice,
+          buyerDipPct: minGainPct,
+          boughtQty: boughtQty,
+        };
+
+        newLogs.unshift(logEntry);
+        if (newLogs.length > 50) newLogs.pop();
+        newTradesCount++;
+        updated = true;
+      }
+    }
+
+    if (updated) {
+      const nextState = {
+        ...simState,
+        positions: newPositions,
+        tradeLogs: newLogs,
+        totalTrades: newTradesCount,
+      };
+      setSimState(nextState);
+      try {
+        localStorage.setItem('solana_wave_sim_v1', JSON.stringify(nextState));
+      } catch {
+        // ignore
+      }
+    }
+  }, [tickers, simState]);
+
+  // 5.3 Manual Test Rotation trigger
+  const handleManualTestRotation = useCallback(() => {
+    if (Object.keys(simState.positions).length === 0) return;
+
+    const sorted = Object.values(simState.positions).sort((a, b) => {
+      const pA = tickers[a.symbol]?.lastPrice || a.referencePrice;
+      const pB = tickers[b.symbol]?.lastPrice || b.referencePrice;
+      const gA = ((pA - a.referencePrice) / a.referencePrice) * 100;
+      const gB = ((pB - b.referencePrice) / b.referencePrice) * 100;
+      return gB - gA;
+    });
+
+    const sellerPos = sorted[0];
+    const buyerPos = sorted[sorted.length - 1];
+    if (!sellerPos || !buyerPos || sellerPos.tokenId === buyerPos.tokenId) return;
+
+    const sellerPrice = (tickers[sellerPos.symbol]?.lastPrice || sellerPos.referencePrice) * 1.012;
+    const buyerPrice = tickers[buyerPos.symbol]?.lastPrice || buyerPos.referencePrice;
+
+    const soldQty = sellerPos.quantity * (simState.sellSharePct / 100);
+    const cashProceeds = soldQty * sellerPrice;
+    const remainingSellerQty = sellerPos.quantity - soldQty;
+    const boughtQty = cashProceeds / buyerPrice;
+
+    const newPositions = {
+      ...simState.positions,
+      [sellerPos.tokenId]: {
+        ...sellerPos,
+        quantity: remainingSellerQty,
+        referencePrice: sellerPrice,
+        totalSoldUsd: sellerPos.totalSoldUsd + cashProceeds,
+        tradesCount: sellerPos.tradesCount + 1,
+      },
+      [buyerPos.tokenId]: {
+        ...buyerPos,
+        quantity: buyerPos.quantity + boughtQty,
+        totalBoughtUsd: buyerPos.totalBoughtUsd + cashProceeds,
+        tradesCount: buyerPos.tradesCount + 1,
+        referencePrice:
+          (buyerPos.quantity * buyerPos.referencePrice + boughtQty * buyerPrice) /
+          (buyerPos.quantity + boughtQty),
+      },
+    };
+
+    const logEntry: TradeLogItem = {
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      timestamp: Date.now(),
+      sellerToken: sellerPos.baseAsset,
+      sellerColor: sellerPos.color,
+      sellerPrice: sellerPrice,
+      sellerGainPct: 1.2,
+      soldAmountUsd: cashProceeds,
+      buyerToken: buyerPos.baseAsset,
+      buyerColor: buyerPos.color,
+      buyerPrice: buyerPrice,
+      buyerDipPct: -1.8,
+      boughtQty: boughtQty,
+    };
+
+    const nextState = {
+      ...simState,
+      positions: newPositions,
+      tradeLogs: [logEntry, ...simState.tradeLogs].slice(0, 50),
+      totalTrades: simState.totalTrades + 1,
+    };
+    setSimState(nextState);
+    try {
+      localStorage.setItem('solana_wave_sim_v1', JSON.stringify(nextState));
+    } catch {
+      // ignore
+    }
+  }, [simState, tickers]);
+
+  // 5.4 Reset Simulation back to $80 ($10 per token)
+  const handleResetSimulation = useCallback(() => {
+    const initialPositions: Record<string, TokenPosition> = {};
+    SOLANA_WAVE_TOKENS.forEach((token) => {
+      const px = tickers[token.symbol]?.lastPrice || 1;
+      initialPositions[token.id] = {
+        tokenId: token.id,
+        symbol: token.symbol,
+        baseAsset: token.baseAsset,
+        name: token.name,
+        color: token.color,
+        quantity: 10 / px,
+        entryPrice: px,
+        referencePrice: px,
+        initialUsd: 10,
+        totalSoldUsd: 0,
+        totalBoughtUsd: 10,
+        tradesCount: 0,
+      };
+    });
+
+    const freshState: SimulationState = {
+      isActive: true,
+      startTime: Date.now(),
+      initialTotalCapital: 80,
+      initialPerToken: 10,
+      triggerGainPct: 1.0,
+      sellSharePct: 33,
+      positions: initialPositions,
+      tradeLogs: [],
+      totalTrades: 0,
+    };
+
+    setSimState(freshState);
+    try {
+      localStorage.setItem('solana_wave_sim_v1', JSON.stringify(freshState));
+    } catch {
+      // ignore
+    }
+  }, [tickers]);
+
+  // 5.5 Portfolio Summary Memo
+  const portfolioSummary = useMemo(() => {
+    let totalUsd = 0;
+    const initialTotal = simState.initialTotalCapital || 80;
+    let mostAccumulated = { token: '—', qtyGain: -Infinity };
+
+    SOLANA_WAVE_TOKENS.forEach((token) => {
+      const pos = simState.positions[token.id];
+      const livePx = tickers[token.symbol]?.lastPrice || pos?.entryPrice || 1;
+      if (pos) {
+        const val = pos.quantity * livePx;
+        totalUsd += val;
+        const initialQty = pos.initialUsd / pos.entryPrice;
+        const qtyGain = initialQty > 0 ? ((pos.quantity - initialQty) / initialQty) * 100 : 0;
+        if (qtyGain > mostAccumulated.qtyGain) {
+          mostAccumulated = { token: pos.baseAsset, qtyGain };
+        }
+      }
+    });
+
+    const pnlUsd = totalUsd - initialTotal;
+    const pnlPct = initialTotal > 0 ? (pnlUsd / initialTotal) * 100 : 0;
+
+    return {
+      totalUsd,
+      initialTotal,
+      pnlUsd,
+      pnlPct,
+      mostAccumulated,
+    };
+  }, [simState, tickers]);
 
   // Fetch Kline candles for all 8 tokens
   const loadWaveCandles = useCallback(async (tf: WaveTimeframe) => {
@@ -1153,6 +1519,245 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
           </div>
         </section>
       )}
+
+      {/* ===== LIVE SIMULATOR: ROTATION & REBALANCING ENGINE ($80 / +1% / 33%) ===== */}
+      <section className="rounded-2xl border border-line bg-surface p-5 sm:p-6 shadow-xl">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-line pb-4">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <span className={`flex h-3 w-3 rounded-full ${simState.isActive ? 'bg-up animate-ping' : 'bg-amber-400'}`} />
+              <h2 className="text-base font-bold text-ink flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-accent" />
+                Simulation Live : Rebalancing & Rotation Continue
+              </h2>
+              <span className={`rounded-md px-2 py-0.5 text-[10px] font-mono font-bold uppercase tracking-wider ${
+                simState.isActive ? 'bg-up/20 text-up border border-up/30' : 'bg-amber-400/20 text-amber-300'
+              }`}>
+                {simState.isActive ? 'En Direct' : 'En Pause'}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-ink-dim">
+              Règle : 10$ sur chacun des 8 tokens (80$ total). Dès qu’un token gagne +{simState.triggerGainPct}%, vente immédiate de {simState.sellSharePct}% de sa position et réinvestissement direct dans le token le plus bas (Deepest Dip).
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Play/Pause */}
+            <button
+              onClick={() => {
+                const nextState = { ...simState, isActive: !simState.isActive };
+                setSimState(nextState);
+                try {
+                  localStorage.setItem('solana_wave_sim_v1', JSON.stringify(nextState));
+                } catch {
+                  // ignore
+                }
+              }}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                simState.isActive
+                  ? 'border-amber-400/40 bg-amber-400/10 text-amber-300 hover:bg-amber-400/20'
+                  : 'border-up/40 bg-up/10 text-up hover:bg-up/20'
+              }`}
+            >
+              {simState.isActive ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+              <span>{simState.isActive ? 'Mettre en Pause' : 'Reprendre'}</span>
+            </button>
+
+            {/* Test 1 Trade Button */}
+            <button
+              onClick={handleManualTestRotation}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-accent/40 bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent hover:bg-accent/20 transition-all cursor-pointer"
+              title="Déclenche manuellement une rotation (+1% / 33%) pour observer le mécanisme immédiatement"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              <span>Tester 1 Rotation (+1%)</span>
+            </button>
+
+            {/* Reset $80 Button */}
+            <button
+              onClick={handleResetSimulation}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong bg-well px-3 py-1.5 text-xs font-semibold text-ink-dim hover:text-ink hover:border-line-strong transition-all cursor-pointer"
+              title="Réinitialise la simulation à 10$ par token aux prix actuels du marché"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>Réinitialiser ($80)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* 4 Performance KPI Cards */}
+        <div className="mt-5 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-xl border border-line bg-well p-4">
+            <div className="flex items-center justify-between text-xs text-ink-dim">
+              <span>Valeur Totale du Portefeuille</span>
+              <DollarSign className="h-4 w-4 text-accent" />
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold font-mono text-ink">
+                ${portfolioSummary.totalUsd.toFixed(2)}
+              </span>
+              <span className={`text-xs font-mono font-bold ${portfolioSummary.pnlPct >= 0 ? 'text-up' : 'text-down'}`}>
+                {portfolioSummary.pnlPct >= 0 ? `+${portfolioSummary.pnlPct.toFixed(2)}%` : `${portfolioSummary.pnlPct.toFixed(2)}%`}
+              </span>
+            </div>
+            <div className="mt-1 text-[11px] text-ink-faint">
+              Capital Initial : ${portfolioSummary.initialTotal.toFixed(2)} (8 × $10.00)
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-line bg-well p-4">
+            <div className="flex items-center justify-between text-xs text-ink-dim">
+              <span>Rotations Exécutées</span>
+              <RotateCcw className="h-4 w-4 text-accent" />
+            </div>
+            <div className="mt-2 text-2xl font-bold font-mono text-up">
+              {simState.totalTrades}
+            </div>
+            <div className="mt-1 text-[11px] text-ink-faint">
+              Rebalancings automatiques à +{simState.triggerGainPct}%
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-line bg-well p-4">
+            <div className="flex items-center justify-between text-xs text-ink-dim">
+              <span>Gain / Perte Net (P&L)</span>
+              <TrendingUp className="h-4 w-4 text-accent" />
+            </div>
+            <div className={`mt-2 text-2xl font-bold font-mono ${portfolioSummary.pnlUsd >= 0 ? 'text-up' : 'text-down'}`}>
+              {portfolioSummary.pnlUsd >= 0 ? `+$${portfolioSummary.pnlUsd.toFixed(2)}` : `-$${Math.abs(portfolioSummary.pnlUsd).toFixed(2)}`}
+            </div>
+            <div className="mt-1 text-[11px] text-ink-faint">
+              Surveillance continue des ticks
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-line bg-well p-4">
+            <div className="flex items-center justify-between text-xs text-ink-dim">
+              <span>Top Accumulation (Dips)</span>
+              <Target className="h-4 w-4 text-accent" />
+            </div>
+            <div className="mt-2 text-2xl font-bold font-mono text-accent">
+              {portfolioSummary.mostAccumulated.token || '—'}
+            </div>
+            <div className="mt-1 text-[11px] text-ink-faint">
+              Token ayant reçu le plus de réinvestissements
+            </div>
+          </div>
+        </div>
+
+        {/* 8 Tokens Position Cards Grid */}
+        <div className="mt-5">
+          <div className="text-xs font-semibold uppercase tracking-wider text-ink-dim mb-3">
+            Positions en Cours (8 Tokens — Base $10 chacun)
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {SOLANA_WAVE_TOKENS.map((token) => {
+              const pos = simState.positions[token.id];
+              const liveTick = tickers[token.symbol];
+              const currentPrice = liveTick?.lastPrice || pos?.entryPrice || 1;
+              const currentValue = (pos?.quantity || 0) * currentPrice;
+              const gainSinceRef = pos && pos.referencePrice > 0 ? ((currentPrice - pos.referencePrice) / pos.referencePrice) * 100 : 0;
+              const progressToTrigger = Math.max(0, Math.min(100, (gainSinceRef / simState.triggerGainPct) * 100));
+
+              return (
+                <div
+                  key={token.id}
+                  className="rounded-xl border border-line/80 bg-well/70 p-3.5 relative overflow-hidden flex flex-col justify-between"
+                  style={{ borderLeftColor: token.color, borderLeftWidth: '3px' }}
+                >
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full" style={{ backgroundColor: token.color }} />
+                        <span className="font-bold text-sm text-ink font-mono">{token.baseAsset}</span>
+                      </div>
+                      <span className="text-xs font-mono font-bold text-ink">
+                        ${currentValue.toFixed(2)}
+                      </span>
+                    </div>
+
+                    <div className="mt-2 flex items-baseline justify-between text-xs font-mono">
+                      <span className="text-ink-dim">
+                        {pos?.quantity ? (pos.quantity < 1 ? pos.quantity.toFixed(4) : pos.quantity.toFixed(2)) : '0'} {token.baseAsset}
+                      </span>
+                      <span className="text-ink-faint">
+                        @ ${currentPrice < 1 ? currentPrice.toFixed(4) : currentPrice.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Progress to +1% Rebalance Trigger */}
+                  <div className="mt-3 border-t border-line/50 pt-2.5">
+                    <div className="flex items-center justify-between text-[11px] font-mono">
+                      <span className="text-ink-dim">Progression vers +{simState.triggerGainPct}% :</span>
+                      <span className={`font-bold ${gainSinceRef >= 0 ? 'text-up' : 'text-down'}`}>
+                        {gainSinceRef >= 0 ? `+${gainSinceRef.toFixed(2)}%` : `${gainSinceRef.toFixed(2)}%`}
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 w-full rounded-full bg-ground overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${gainSinceRef >= simState.triggerGainPct ? 'bg-up' : 'bg-accent'}`}
+                        style={{ width: `${progressToTrigger}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Live Execution Trade History Logs */}
+        <div className="mt-6 border-t border-line/70 pt-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-ink-dim flex items-center gap-2">
+              <History className="h-3.5 w-3.5 text-accent" />
+              Journal des Arbitrages en Direct (Rotations Exécutées)
+            </h3>
+            <span className="text-[11px] font-mono text-ink-faint">
+              {simState.tradeLogs.length} transaction(s) enregistrée(s)
+            </span>
+          </div>
+
+          {simState.tradeLogs.length === 0 ? (
+            <div className="rounded-xl border border-line-dashed bg-well/40 p-6 text-center text-xs text-ink-faint">
+              En attente du premier mouvement de +{simState.triggerGainPct}% sur l'un des tokens.
+              <br />
+              <span className="text-ink-dim text-[11px] mt-1 inline-block">
+                Astuce : Vous pouvez cliquer sur <strong>"Tester 1 Rotation (+1%)"</strong> ci-dessus pour observer l'algorithme immédiatement.
+              </span>
+            </div>
+          ) : (
+            <div className="max-h-[220px] overflow-y-auto space-y-2 pr-1 font-mono text-xs">
+              {simState.tradeLogs.map((log) => (
+                <div
+                  key={log.id}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border border-line/60 bg-well/80 p-2.5 hover:border-line-strong transition-colors"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-ink-faint text-[10px]">
+                      {new Date(log.timestamp).toLocaleTimeString('fr-FR')}
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded bg-down/10 px-1.5 py-0.5 text-[11px] font-bold text-down border border-down/20">
+                      Vente 33% {log.sellerToken} (+{log.sellerGainPct.toFixed(2)}%)
+                    </span>
+                    <span className="text-ink-faint">➜</span>
+                    <span className="inline-flex items-center gap-1 rounded bg-up/10 px-1.5 py-0.5 text-[11px] font-bold text-up border border-up/20">
+                      Achat {log.buyerToken} (Deep Dip)
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-ink-dim text-[11px]">
+                    <span>Montant roté : <strong className="text-ink">${log.soldAmountUsd.toFixed(2)}</strong></span>
+                    <span className="text-ink-faint">|</span>
+                    <span>Quantité acquise : <strong className="text-up">+{log.boughtQty < 1 ? log.boughtQty.toFixed(4) : log.boughtQty.toFixed(2)} {log.buyerToken}</strong></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* ===== CHART 2: L'Onde Ondulatoire Stationnaire Ψ(t) ===== */}
       <section className="rounded-2xl border border-line bg-surface p-5 sm:p-6 shadow-xl">
