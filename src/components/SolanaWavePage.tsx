@@ -271,7 +271,7 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
   // SVG Chart Dimensions
   const chartWidth = 980;
   const chartHeight = 280;
-  const padding = { top: 20, right: 30, bottom: 30, left: 50 };
+  const padding = { top: 20, right: 30, bottom: 30, left: 105 };
   const innerW = chartWidth - padding.left - padding.right;
   const innerH = chartHeight - padding.top - padding.bottom;
 
@@ -525,7 +525,7 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
                         strokeOpacity={level === 0 ? 0.6 : 0.4}
                       />
                       <text
-                        x={padding.left - 8}
+                        x={padding.left - 10}
                         y={y + 3}
                         textAnchor="end"
                         className="font-mono text-[10px] fill-slate-400"
@@ -716,6 +716,33 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
                   </linearGradient>
                 </defs>
 
+                {/* Vertical time markers */}
+                {timestamps.map((ts, idx) => {
+                  if (idx % Math.ceil(timestamps.length / 6) !== 0) return null;
+                  const x = getX(idx);
+                  return (
+                    <g key={ts}>
+                      <line
+                        x1={x}
+                        y1={padding.top}
+                        x2={x}
+                        y2={chartHeight - padding.bottom}
+                        stroke="#20363d"
+                        strokeWidth={0.5}
+                        strokeOpacity={0.4}
+                      />
+                      <text
+                        x={x}
+                        y={chartHeight - padding.bottom + 16}
+                        textAnchor="middle"
+                        className="font-mono text-[10px] fill-slate-500"
+                      >
+                        {fmtTime(ts)}
+                      </text>
+                    </g>
+                  );
+                })}
+
                 {/* Ceiling +100% Band (Sommet Max Fixe) */}
                 <line
                   x1={padding.left}
@@ -728,8 +755,8 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
                   strokeOpacity={0.8}
                 />
                 <text
-                  x={padding.left - 8}
-                  y={top100YWave + 3}
+                  x={padding.left - 10}
+                  y={top100YWave + 3.5}
                   textAnchor="end"
                   className="font-mono text-[10px] fill-rose-400 font-bold"
                 >
@@ -747,6 +774,14 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
                   strokeDasharray="2,2"
                   strokeOpacity={0.3}
                 />
+                <text
+                  x={padding.left - 10}
+                  y={getYWave(60) + 3}
+                  textAnchor="end"
+                  className="font-mono text-[9px] fill-rose-400/60"
+                >
+                  +60%
+                </text>
 
                 {/* Equilibrium Zero Line 0% */}
                 <line
@@ -760,8 +795,8 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
                   strokeOpacity={0.7}
                 />
                 <text
-                  x={padding.left - 8}
-                  y={zeroYWave + 3}
+                  x={padding.left - 10}
+                  y={zeroYWave + 3.5}
                   textAnchor="end"
                   className="font-mono text-[10px] fill-sky-300 font-bold"
                 >
@@ -779,6 +814,14 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
                   strokeDasharray="2,2"
                   strokeOpacity={0.3}
                 />
+                <text
+                  x={padding.left - 10}
+                  y={getYWave(-60) + 3}
+                  textAnchor="end"
+                  className="font-mono text-[9px] fill-emerald-400/60"
+                >
+                  −60%
+                </text>
 
                 {/* Floor -100% Band (Creux Min Fixe) */}
                 <line
@@ -792,8 +835,8 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
                   strokeOpacity={0.8}
                 />
                 <text
-                  x={padding.left - 8}
-                  y={bottom100YWave + 3}
+                  x={padding.left - 10}
+                  y={bottom100YWave + 3.5}
                   textAnchor="end"
                   className="font-mono text-[10px] fill-emerald-400 font-bold"
                 >
