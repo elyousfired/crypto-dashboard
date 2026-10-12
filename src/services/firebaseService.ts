@@ -169,3 +169,62 @@ export const subscribeToCloudPortfolio = (userId: string, onUpdate: (data: any) 
     }
   });
 };
+
+export const saveSimulationToCloud = async (data: any): Promise<boolean> => {
+  if (!db) {
+    initFirebase();
+  }
+  if (!db) return false;
+  try {
+    const simDocRef = doc(db, 'simulations', 'solana_wave_sim');
+    await setDoc(simDocRef, {
+      ...data,
+      updatedAt: Date.now(),
+    });
+    return true;
+  } catch (err) {
+    console.warn('Failed to save simulation to Firestore:', err);
+    return false;
+  }
+};
+
+export const loadSimulationFromCloud = async (): Promise<any | null> => {
+  if (!db) {
+    initFirebase();
+  }
+  if (!db) return null;
+  try {
+    const simDocRef = doc(db, 'simulations', 'solana_wave_sim');
+    const snap = await getDoc(simDocRef);
+    if (snap.exists()) {
+      return snap.data();
+    }
+  } catch (err) {
+    console.warn('Failed to load simulation from Firestore:', err);
+  }
+  return null;
+};
+
+export const subscribeToSimulationCloud = (onUpdate: (data: any) => void) => {
+  if (!db) {
+    initFirebase();
+  }
+  if (!db) return () => {};
+  try {
+    const simDocRef = doc(db, 'simulations', 'solana_wave_sim');
+    return onSnapshot(
+      simDocRef,
+      (snap) => {
+        if (snap.exists()) {
+          onUpdate(snap.data());
+        }
+      },
+      (err) => {
+        console.warn('Firestore sim subscription error:', err);
+      }
+    );
+  } catch (err) {
+    console.warn('Error subscribing to simulation Firestore:', err);
+    return () => {};
+  }
+};

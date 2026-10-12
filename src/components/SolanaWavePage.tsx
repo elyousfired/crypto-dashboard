@@ -3,7 +3,8 @@ import type { TickerData, TokenConfig, CandleData } from '../types/crypto';
 import { SOLANA_WAVE_TOKENS } from '../config/tokens';
 import { fetchBinanceKlines } from '../services/binanceService';
 import { fetchBybitKlines } from '../services/bybitService';
-import { Activity, Waves, TrendingUp, Info, RefreshCw, Zap, Clock, Grid, Target, RotateCcw, Play, Pause, DollarSign, History, Sparkles } from 'lucide-react';
+import { Activity, Waves, TrendingUp, Info, RefreshCw, Zap, Clock, Grid, Target, RotateCcw, Play, Pause, DollarSign, History, Sparkles, Cloud } from 'lucide-react';
+import { saveSimulationToCloud, loadSimulationFromCloud, subscribeToSimulationCloud } from '../services/firebaseService';
 
 interface SolanaWavePageProps {
   tickers: Record<string, TickerData>;
@@ -57,6 +58,8 @@ interface SimulationState {
   positions: Record<string, TokenPosition>;
   tradeLogs: TradeLogItem[];
   totalTrades: number;
+  lastProcessedTimestamp: number;
+  cloudSyncStatus?: 'synced' | 'syncing' | 'offline';
 }
 
 const getInitialSimulationState = (): SimulationState => ({
@@ -69,6 +72,8 @@ const getInitialSimulationState = (): SimulationState => ({
   positions: {},
   tradeLogs: [],
   totalTrades: 0,
+  lastProcessedTimestamp: Date.now(),
+  cloudSyncStatus: 'synced',
 });
 
 export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
@@ -118,6 +123,44 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
 
   const selectAllTokens = () => setActiveTokenIds(SOLANA_WAVE_TOKENS.map((t) => t.id));
 
+  // 5.0 Offline catchup alert
+  const [catchupAlert, setCatchupAlert] = useState<string | null>(null);
+
+  // 5.0b Cloud Subscription and Initial Load
+  useEffect(() => {
+    let isMounted = true;
+
+    loadSimulationFromCloud().then((cloudData) => {
+      if (cloudData && isMounted && cloudData.positions && Object.keys(cloudData.positions).length > 0) {
+        setSimState((prev) => ({
+          ...prev,
+          ...cloudData,
+          cloudSyncStatus: 'synced',
+        }));
+      }
+    });
+
+    const unsubscribe = subscribeToSimulationCloud((cloudData) => {
+      if (cloudData && isMounted && cloudData.positions && Object.keys(cloudData.positions).length > 0) {
+        setSimState((prev) => {
+          if ((cloudData.totalTrades || 0) >= (prev.totalTrades || 0)) {
+            return {
+              ...prev,
+              ...cloudData,
+              cloudSyncStatus: 'synced',
+            };
+          }
+          return prev;
+        });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
+
   // 5.1 Initialize simulation positions with $10 in each token once tickers are loaded
   useEffect(() => {
     if (Object.keys(simState.positions).length === 0 && Object.keys(tickers).length > 0) {
@@ -146,17 +189,151 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
 
       if (hasValidPrice) {
         setSimState((prev) => {
-          const next = { ...prev, positions: initialPositions };
+          const next = { ...prev, positions: initialPositions, cloudSyncStatus: 'synced' as const };
           try {
             localStorage.setItem('solana_wave_sim_v1', JSON.stringify(next));
           } catch {
             // ignore
           }
+          saveSimulationToCloud(next);
           return next;
         });
       }
     }
   }, [tickers, simState.positions]);
+
+  // 5.1b Autonomous Offline Catch-Up Replay: Executes trades that occurred while PC was OFF
+  useEffect(() => {
+    if (!simState.isActive || Object.keys(simState.positions).length === 0) return;
+    const now = Date.now();
+    const lastCheck = simState.lastProcessedTimestamp || simState.startTime || now;
+    const elapsedMinutes = (now - lastCheck) / (1000 * 60);
+
+    // Only catch up if at least 5 minutes have elapsed since last check
+    if (elapsedMinutes < 5) return;
+
+    const sampleCandles = Object.values(candlesMap)[0];
+    if (!sampleCandles || sampleCandles.length === 0) return;
+
+    const missedCandleTimestamps = sampleCandles
+      .map((c) => c.time * 1000)
+      .filter((ts) => ts > lastCheck && ts <= now);
+
+    if (missedCandleTimestamps.length === 0) {
+      setSimState((prev) => ({ ...prev, lastProcessedTimestamp: now }));
+      return;
+    }
+
+    const replayPositions = { ...simState.positions };
+    const replayLogs: TradeLogItem[] = [...simState.tradeLogs];
+    let executedCatchupTrades = 0;
+
+    for (const cTime of missedCandleTimestamps) {
+      const pricesAtCandle: Record<string, number> = {};
+      SOLANA_WAVE_TOKENS.forEach((tok) => {
+        const arr = candlesMap[tok.id] || [];
+        const match = arr.find((c) => Math.abs(c.time * 1000 - cTime) < 3600000);
+        if (match) pricesAtCandle[tok.id] = match.close;
+      });
+
+      const sellers: { tokenId: string; gainPct: number; currentPrice: number }[] = [];
+      SOLANA_WAVE_TOKENS.forEach((tok) => {
+        const pos = replayPositions[tok.id];
+        const px = pricesAtCandle[tok.id];
+        if (!pos || !px || pos.quantity <= 0) return;
+        const gainPct = ((px - pos.referencePrice) / pos.referencePrice) * 100;
+        if (gainPct >= simState.triggerGainPct) {
+          sellers.push({ tokenId: tok.id, gainPct, currentPrice: px });
+        }
+      });
+
+      if (sellers.length > 0) {
+        sellers.sort((a, b) => b.gainPct - a.gainPct);
+        const topSeller = sellers[0];
+        const sellerPos = replayPositions[topSeller.tokenId];
+
+        let deepestId: string | null = null;
+        let minGain = Infinity;
+        SOLANA_WAVE_TOKENS.forEach((tok) => {
+          if (tok.id === topSeller.tokenId) return;
+          const pos = replayPositions[tok.id];
+          const px = pricesAtCandle[tok.id];
+          if (!pos || !px) return;
+          const gainPct = ((px - pos.referencePrice) / pos.referencePrice) * 100;
+          if (gainPct < minGain) {
+            minGain = gainPct;
+            deepestId = tok.id;
+          }
+        });
+
+        if (deepestId && sellerPos) {
+          const buyerPos = replayPositions[deepestId];
+          const buyerPrice = pricesAtCandle[deepestId] || buyerPos.referencePrice;
+
+          const soldQty = sellerPos.quantity * (simState.sellSharePct / 100);
+          const cashProceeds = soldQty * topSeller.currentPrice;
+          const remainingQty = sellerPos.quantity - soldQty;
+          const boughtQty = cashProceeds / buyerPrice;
+
+          replayPositions[topSeller.tokenId] = {
+            ...sellerPos,
+            quantity: remainingQty,
+            referencePrice: topSeller.currentPrice,
+            totalSoldUsd: sellerPos.totalSoldUsd + cashProceeds,
+            tradesCount: sellerPos.tradesCount + 1,
+          };
+
+          replayPositions[deepestId] = {
+            ...buyerPos,
+            quantity: buyerPos.quantity + boughtQty,
+            totalBoughtUsd: buyerPos.totalBoughtUsd + cashProceeds,
+            tradesCount: buyerPos.tradesCount + 1,
+            referencePrice:
+              (buyerPos.quantity * buyerPos.referencePrice + boughtQty * buyerPrice) /
+              (buyerPos.quantity + boughtQty),
+          };
+
+          replayLogs.unshift({
+            id: `offline-${cTime}-${Math.random().toString(36).substring(2, 6)}`,
+            timestamp: cTime,
+            sellerToken: sellerPos.baseAsset,
+            sellerColor: sellerPos.color,
+            sellerPrice: topSeller.currentPrice,
+            sellerGainPct: topSeller.gainPct,
+            soldAmountUsd: cashProceeds,
+            buyerToken: buyerPos.baseAsset,
+            buyerColor: buyerPos.color,
+            buyerPrice: buyerPrice,
+            buyerDipPct: minGain,
+            boughtQty: boughtQty,
+          });
+
+          executedCatchupTrades++;
+        }
+      }
+    }
+
+    const nextState: SimulationState = {
+      ...simState,
+      positions: replayPositions,
+      tradeLogs: replayLogs.slice(0, 50),
+      totalTrades: simState.totalTrades + executedCatchupTrades,
+      lastProcessedTimestamp: now,
+      cloudSyncStatus: 'synced',
+    };
+
+    setSimState(nextState);
+    try {
+      localStorage.setItem('solana_wave_sim_v1', JSON.stringify(nextState));
+    } catch {
+      // ignore
+    }
+    saveSimulationToCloud(nextState);
+
+    if (executedCatchupTrades > 0) {
+      setCatchupAlert(`⚡ ${executedCatchupTrades} rotation(s) d'arbitrage exécutée(s) pendant que vous étiez hors-ligne !`);
+    }
+  }, [candlesMap]);
 
   // 5.2 Monitor live price ticks & execute +1% -> 33% rotation to deepest dip
   useEffect(() => {
@@ -270,6 +447,7 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
       } catch {
         // ignore
       }
+      saveSimulationToCloud(nextState);
     }
   }, [tickers, simState]);
 
@@ -344,6 +522,7 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
     } catch {
       // ignore
     }
+    saveSimulationToCloud(nextState);
   }, [simState, tickers]);
 
   // 5.4 Reset Simulation back to $80 ($10 per token)
@@ -377,6 +556,8 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
       positions: initialPositions,
       tradeLogs: [],
       totalTrades: 0,
+      lastProcessedTimestamp: Date.now(),
+      cloudSyncStatus: 'synced',
     };
 
     setSimState(freshState);
@@ -385,6 +566,7 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
     } catch {
       // ignore
     }
+    saveSimulationToCloud(freshState);
   }, [tickers]);
 
   // 5.5 Portfolio Summary Memo
@@ -1535,9 +1717,13 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
               }`}>
                 {simState.isActive ? 'En Direct' : 'En Pause'}
               </span>
+              <span className="inline-flex items-center gap-1 rounded-md bg-accent/15 px-2 py-0.5 text-[10px] font-mono font-bold text-accent border border-accent/30">
+                <Cloud className="h-3 w-3" />
+                Cloud 24/7 (Autonome)
+              </span>
             </div>
             <p className="mt-1 text-xs text-ink-dim">
-              Règle : 10$ sur chacun des 8 tokens (80$ total). Dès qu’un token gagne +{simState.triggerGainPct}%, vente immédiate de {simState.sellSharePct}% de sa position et réinvestissement direct dans le token le plus bas (Deepest Dip).
+              Règle : 10$ sur chacun des 8 tokens (80$ total). Dès qu’un token gagne +{simState.triggerGainPct}%, vente immédiate de {simState.sellSharePct}% de sa position et réinvestissement direct dans le token le plus bas (Deepest Dip). Synchronisé 24h/24 dans le Cloud.
             </p>
           </div>
 
@@ -1584,6 +1770,22 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
             </button>
           </div>
         </div>
+
+        {/* Offline Catch-up Alert Banner */}
+        {catchupAlert && (
+          <div className="mt-4 flex items-center justify-between rounded-xl border border-accent/40 bg-accent/10 p-3.5 text-xs text-accent">
+            <div className="flex items-center gap-2 font-semibold">
+              <Zap className="h-4 w-4 animate-bounce text-accent" />
+              <span>{catchupAlert}</span>
+            </div>
+            <button
+              onClick={() => setCatchupAlert(null)}
+              className="text-xs text-ink-dim hover:text-ink cursor-pointer font-bold px-2 py-1"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* 4 Performance KPI Cards */}
         <div className="mt-5 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
