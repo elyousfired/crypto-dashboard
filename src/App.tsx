@@ -50,12 +50,15 @@ import { SolanaEcosystemSection } from './components/SolanaEcosystemSection';
 import { HyperliquidEcosystemSection } from './components/HyperliquidEcosystemSection';
 import { CrossPairsPage } from './components/CrossPairsPage';
 import { PortfolioDcaPage } from './components/PortfolioDcaPage';
+import { SolanaWavePage } from './components/SolanaWavePage';
 import { CROSS_TOKENS } from './config/crossPairs';
+import { SOLANA_WAVE_TOKENS } from './config/tokens';
 
 export const App: React.FC = () => {
-  // Navigation: Dedicated Page ('solana' | 'hyperliquid' | 'global' | 'cross-pairs' | 'portfolio')
+  // Navigation: Dedicated Page ('solana' | 'wave' | 'hyperliquid' | 'global' | 'cross-pairs' | 'portfolio')
   const [activePage, setActivePage] = useState<DashboardPage>(() => {
     if (typeof window !== 'undefined') {
+      if (window.location.hash === '#wave' || window.location.hash === '#solana-wave') return 'wave';
       if (window.location.hash === '#global') return 'global';
       if (window.location.hash === '#hyperliquid') return 'hyperliquid';
       if (window.location.hash === '#cross-pairs' || window.location.hash === '#pairs') return 'cross-pairs';
@@ -65,6 +68,7 @@ export const App: React.FC = () => {
   });
 
   const currentTokens = useMemo(() => {
+    if (activePage === 'wave') return SOLANA_WAVE_TOKENS;
     if (activePage === 'solana') return SOLANA_TOKENS;
     if (activePage === 'hyperliquid') return HYPERLIQUID_TOKENS;
     if (activePage === 'cross-pairs') return CROSS_TOKENS;
@@ -74,6 +78,7 @@ export const App: React.FC = () => {
   // Selected token defaults to SOL on solana page, HYPE on hyperliquid page, SUI on global page
   const [selectedToken, setSelectedToken] = useState<TokenConfig>(() => {
     if (typeof window !== 'undefined') {
+      if (window.location.hash === '#wave' || window.location.hash === '#solana-wave') return SOLANA_WAVE_TOKENS[7]; // SOL
       if (window.location.hash === '#global') return GLOBAL_TOKENS[0];
       if (window.location.hash === '#hyperliquid') return HYPERLIQUID_TOKENS[0];
       if (window.location.hash === '#cross-pairs' || window.location.hash === '#pairs') return GLOBAL_TOKENS[1]; // SOL
@@ -95,6 +100,8 @@ export const App: React.FC = () => {
     }
     if (page === 'solana') {
       setSelectedToken(SOLANA_TOKENS[0]); // SOL
+    } else if (page === 'wave') {
+      setSelectedToken(SOLANA_WAVE_TOKENS[7]); // SOL
     } else if (page === 'hyperliquid') {
       setSelectedToken(HYPERLIQUID_TOKENS[0]); // HYPE
     } else if (page === 'cross-pairs') {
@@ -109,7 +116,10 @@ export const App: React.FC = () => {
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash;
-      if (hash === '#global') {
+      if (hash === '#wave' || hash === '#solana-wave') {
+        setActivePage('wave');
+        setSelectedToken(SOLANA_WAVE_TOKENS[7]);
+      } else if (hash === '#global') {
         setActivePage('global');
         setSelectedToken(GLOBAL_TOKENS[0]);
       } else if (hash === '#hyperliquid') {
@@ -430,8 +440,8 @@ export const App: React.FC = () => {
         onToggleTable={() => setShowMarketTable(!showMarketTable)}
       />
 
-      {/* Horizontal Ticker Carousel (hidden on Portfolio: prices are already in the positions table) */}
-      {activePage !== 'portfolio' && (
+      {/* Horizontal Ticker Carousel (hidden on Portfolio and Wave: prices are already in their dedicated tables/charts) */}
+      {activePage !== 'portfolio' && activePage !== 'wave' && (
         <TickerBar
           tokens={currentTokens}
           tickers={tickers}
@@ -444,6 +454,8 @@ export const App: React.FC = () => {
       <main className="flex-1 flex flex-col">
         {activePage === 'portfolio' ? (
           <PortfolioDcaPage tickers={tickers} />
+        ) : activePage === 'wave' ? (
+          <SolanaWavePage tickers={tickers} />
         ) : activePage === 'cross-pairs' ? (
           <CrossPairsPage
             tickers={tickers}
@@ -604,6 +616,10 @@ export const App: React.FC = () => {
           ) : activePage === 'portfolio' ? (
             <span className="text-emerald-400 font-semibold">
               Page Dédiée Suivi Portefeuille & DCA : Prix Moyens Pondérés & PnL Réel en Direct
+            </span>
+          ) : activePage === 'wave' ? (
+            <span className="text-accent font-semibold">
+              Page Dédiée Onde Harmonique Solana : Superposition d'Ondes & Extraction de Cycle Récurrent (JTO • JUP • KMNO • MET • ORCA • PUMP • RAY • SOL)
             </span>
           ) : (
             <>

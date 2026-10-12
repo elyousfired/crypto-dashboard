@@ -20,6 +20,7 @@ interface HeaderProps {
 
 const NAV: { id: DashboardPage; label: string }[] = [
   { id: 'solana', label: 'Solana' },
+  { id: 'wave', label: 'Onde Solana' },
   { id: 'hyperliquid', label: 'Hyperliquid' },
   { id: 'global', label: 'Global' },
   { id: 'cross-pairs', label: 'Cross-Pairs' },
