@@ -3,7 +3,7 @@ import type { TickerData, TokenConfig, CandleData } from '../types/crypto';
 import { SOLANA_WAVE_TOKENS } from '../config/tokens';
 import { fetchBinanceKlines } from '../services/binanceService';
 import { fetchBybitKlines } from '../services/bybitService';
-import { Activity, Waves, TrendingUp, Info, RefreshCw, Zap, Clock } from 'lucide-react';
+import { Activity, Waves, TrendingUp, Info, RefreshCw, Zap, Clock, Grid, Target, RotateCcw } from 'lucide-react';
 
 interface SolanaWavePageProps {
   tickers: Record<string, TickerData>;
@@ -32,6 +32,10 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [showMathModal, setShowMathModal] = useState<boolean>(false);
   const [showSineOverlay, setShowSineOverlay] = useState<boolean>(true);
+
+  // 4. Multi-Token Grid State
+  const [showTokenGrid, setShowTokenGrid] = useState<boolean>(true);
+  const [gridTargetPercent, setGridTargetPercent] = useState<number>(2.0);
 
   // Toggle token inclusion
   const toggleToken = (id: string) => {
@@ -259,6 +263,67 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
     };
   }, [candlesMap, activeTokenIds, timeframe]);
 
+  // Grid Multi-Tokens Analysis & Relative Rotation Engine
+  const gridAnalysis = useMemo(() => {
+    if (seriesList.length === 0) return null;
+
+    const tokensWithState = seriesList.map((s) => {
+      const lastReturn = s.returns[s.returns.length - 1] ?? 0;
+      const lastPrice = s.prices[s.prices.length - 1] ?? 0;
+      const minReturnInWindow = Math.min(...s.returns);
+      const maxReturnInWindow = Math.max(...s.returns);
+      return {
+        token: s.token,
+        lastReturn,
+        lastPrice,
+        minReturnInWindow,
+        maxReturnInWindow,
+      };
+    });
+
+    // Tri croissant : le plus faible rendement en premier = le creux le plus profond
+    tokensWithState.sort((a, b) => a.lastReturn - b.lastReturn);
+
+    const deepestDipToken = tokensWithState[0];
+    const topLeaderToken = tokensWithState[tokensWithState.length - 1];
+    const avgReturn = tokensWithState.reduce((acc, t) => acc + t.lastReturn, 0) / (tokensWithState.length || 1);
+    const spreadPercent = topLeaderToken.lastReturn - deepestDipToken.lastReturn;
+
+    // Cible de sortie pour le deepest dip (+X% rebond):
+    const targetExitReturn = deepestDipToken.lastReturn + gridTargetPercent;
+    const targetExitPrice = deepestDipToken.lastPrice * (1 + gridTargetPercent / 100);
+
+    // Token suivant dans la file d'attente de rotation:
+    const nextInQueueToken = tokensWithState[1] || tokensWithState[0];
+
+    // Comptage des rotations de +X% validées sur l'historique de la fenêtre:
+    let historicalRotationsCount = 0;
+    seriesList.forEach((s) => {
+      let localTrough = s.returns[0] ?? 0;
+      for (let i = 1; i < s.returns.length; i++) {
+        const val = s.returns[i];
+        if (val < localTrough) {
+          localTrough = val;
+        } else if (val - localTrough >= gridTargetPercent) {
+          historicalRotationsCount++;
+          localTrough = val;
+        }
+      }
+    });
+
+    return {
+      tokensRanking: tokensWithState,
+      deepestDipToken,
+      topLeaderToken,
+      avgReturn,
+      spreadPercent,
+      targetExitReturn,
+      targetExitPrice,
+      nextInQueueToken,
+      historicalRotationsCount,
+    };
+  }, [seriesList, gridTargetPercent]);
+
   // Formatter helpers
   const fmtTime = (ts: number) => {
     const d = new Date(ts * 1000);
@@ -285,9 +350,12 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
         if (r > max) max = r;
       });
     });
+    if (showTokenGrid && gridAnalysis?.targetExitReturn !== undefined) {
+      if (gridAnalysis.targetExitReturn > max) max = gridAnalysis.targetExitReturn + 1;
+    }
     const pad = Math.max(Math.abs(min), Math.abs(max)) * 0.15;
     return { minReturn: Math.floor(min - pad), maxReturn: Math.ceil(max + pad) };
-  }, [seriesList]);
+  }, [seriesList, showTokenGrid, gridAnalysis]);
 
   const getYReturn = (val: number) => {
     const range = maxReturn - minReturn || 1;
@@ -467,7 +535,7 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
 
       {/* ===== CHART 1: Superposition des 8 Courbes Brutes (%) ===== */}
       <section className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-line pb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-line pb-4">
           <div>
             <h2 className="text-base font-bold text-ink flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-accent" />
@@ -477,8 +545,41 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
               Suivi direct des 8 tokens de l’écosystème Solana ramenés à la base 0%
             </p>
           </div>
-          <div className="text-xs text-ink-faint">
-            Base 0% au début de la fenêtre ({timestamps.length} bougies)
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Bouton Grille Multi-Tokens */}
+            <button
+              onClick={() => setShowTokenGrid(!showTokenGrid)}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer ${
+                showTokenGrid
+                  ? 'border-accent bg-accent/15 text-accent shadow-sm'
+                  : 'border-line-strong bg-well text-ink-dim hover:text-ink'
+              }`}
+            >
+              <Grid className="h-3.5 w-3.5" />
+              <span>Grille Multi-Tokens</span>
+              <span className={`inline-block h-2 w-2 rounded-full ${showTokenGrid ? 'bg-up animate-pulse' : 'bg-line-strong'}`} />
+            </button>
+
+            {/* Sélecteur de Pas de Rebond (Cible %) */}
+            {showTokenGrid && (
+              <div className="flex items-center gap-1 rounded-lg border border-line-strong bg-well p-0.5 text-[11px] font-mono">
+                <span className="px-2 text-ink-faint font-sans">Palier:</span>
+                {[1.5, 2.0, 3.0, 5.0].map((step) => (
+                  <button
+                    key={step}
+                    onClick={() => setGridTargetPercent(step)}
+                    className={`rounded px-2 py-0.5 font-semibold transition-all cursor-pointer ${
+                      gridTargetPercent === step
+                        ? 'bg-accent text-ground shadow'
+                        : 'text-ink-dim hover:text-ink'
+                    }`}
+                  >
+                    +{step}%
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -590,6 +691,177 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
                   );
                 })}
 
+                {/* Dynamic Token Grid Overlay */}
+                {showTokenGrid && gridAnalysis && (
+                  <g className="token-grid-layers">
+                    {/* Shaded corridor between lowest and highest token */}
+                    <rect
+                      x={padding.left}
+                      y={getYReturn(gridAnalysis.topLeaderToken.lastReturn)}
+                      width={innerW}
+                      height={Math.max(
+                        3,
+                        getYReturn(gridAnalysis.deepestDipToken.lastReturn) -
+                          getYReturn(gridAnalysis.topLeaderToken.lastReturn)
+                      )}
+                      fill="#38bdf8"
+                      fillOpacity={0.03}
+                    />
+
+                    {/* Horizontal Level for each intermediate token */}
+                    {gridAnalysis.tokensRanking.map((item) => {
+                      const y = getYReturn(item.lastReturn);
+                      const isDeepest = item.token.id === gridAnalysis.deepestDipToken.token.id;
+                      const isLeader = item.token.id === gridAnalysis.topLeaderToken.token.id;
+                      if (isDeepest || isLeader) return null;
+
+                      return (
+                        <g key={`grid-line-${item.token.id}`}>
+                          <line
+                            x1={padding.left}
+                            y1={y}
+                            x2={chartWidth - padding.right}
+                            y2={y}
+                            stroke={item.token.color}
+                            strokeWidth={0.8}
+                            strokeDasharray="2,3"
+                            strokeOpacity={0.4}
+                          />
+                          <rect
+                            x={chartWidth - padding.right - 88}
+                            y={y - 8}
+                            width={82}
+                            height={16}
+                            rx={3}
+                            fill="#0d1f23"
+                            fillOpacity={0.88}
+                            stroke={item.token.color}
+                            strokeWidth={0.8}
+                          />
+                          <text
+                            x={chartWidth - padding.right - 10}
+                            y={y + 3.5}
+                            textAnchor="end"
+                            className="font-mono text-[9px] font-semibold"
+                            fill={item.token.color}
+                          >
+                            {item.token.baseAsset} {item.lastReturn >= 0 ? '+' : ''}
+                            {item.lastReturn.toFixed(1)}%
+                          </text>
+                        </g>
+                      );
+                    })}
+
+                    {/* Ecosystem Average Line */}
+                    <line
+                      x1={padding.left}
+                      y1={getYReturn(gridAnalysis.avgReturn)}
+                      x2={chartWidth - padding.right}
+                      y2={getYReturn(gridAnalysis.avgReturn)}
+                      stroke="#69aac1"
+                      strokeWidth={1}
+                      strokeDasharray="3,3"
+                      strokeOpacity={0.5}
+                    />
+
+                    {/* 1. Deepest Dip Line (Plancher Achat Grille) */}
+                    <g>
+                      <line
+                        x1={padding.left}
+                        y1={getYReturn(gridAnalysis.deepestDipToken.lastReturn)}
+                        x2={chartWidth - padding.right}
+                        y2={getYReturn(gridAnalysis.deepestDipToken.lastReturn)}
+                        stroke="#39d6a3"
+                        strokeWidth={2}
+                        strokeDasharray="4,2"
+                        strokeOpacity={0.9}
+                      />
+                      <rect
+                        x={padding.left + 12}
+                        y={getYReturn(gridAnalysis.deepestDipToken.lastReturn) - 10}
+                        width={215}
+                        height={20}
+                        rx={5}
+                        fill="#05261f"
+                        fillOpacity={0.92}
+                        stroke="#39d6a3"
+                        strokeWidth={1.2}
+                      />
+                      <text
+                        x={padding.left + 20}
+                        y={getYReturn(gridAnalysis.deepestDipToken.lastReturn) + 4}
+                        className="font-mono text-[10px] fill-emerald-300 font-bold"
+                      >
+                        🟢 ACHAT DIP : {gridAnalysis.deepestDipToken.token.baseAsset} ({gridAnalysis.deepestDipToken.lastReturn >= 0 ? '+' : ''}{gridAnalysis.deepestDipToken.lastReturn.toFixed(1)}%)
+                      </text>
+                    </g>
+
+                    {/* 2. Target Exit Line (+X% Rebond) */}
+                    <g>
+                      <line
+                        x1={padding.left}
+                        y1={getYReturn(gridAnalysis.targetExitReturn)}
+                        x2={chartWidth - padding.right}
+                        y2={getYReturn(gridAnalysis.targetExitReturn)}
+                        stroke="#f59e0b"
+                        strokeWidth={2}
+                        strokeDasharray="4,2"
+                        strokeOpacity={0.9}
+                      />
+                      <rect
+                        x={padding.left + 12}
+                        y={getYReturn(gridAnalysis.targetExitReturn) - 10}
+                        width={295}
+                        height={20}
+                        rx={5}
+                        fill="#291804"
+                        fillOpacity={0.92}
+                        stroke="#f59e0b"
+                        strokeWidth={1.2}
+                      />
+                      <text
+                        x={padding.left + 20}
+                        y={getYReturn(gridAnalysis.targetExitReturn) + 4}
+                        className="font-mono text-[10px] fill-amber-300 font-bold"
+                      >
+                        🎯 CIBLE +{gridTargetPercent}% ({gridAnalysis.targetExitReturn >= 0 ? '+' : ''}{gridAnalysis.targetExitReturn.toFixed(1)}%) : VENTE ➜ ROTATION {gridAnalysis.nextInQueueToken.token.baseAsset}
+                      </text>
+                    </g>
+
+                    {/* 3. Top Leader Line (Plafond Grille) */}
+                    <g>
+                      <line
+                        x1={padding.left}
+                        y1={getYReturn(gridAnalysis.topLeaderToken.lastReturn)}
+                        x2={chartWidth - padding.right}
+                        y2={getYReturn(gridAnalysis.topLeaderToken.lastReturn)}
+                        stroke="#fb7185"
+                        strokeWidth={1.6}
+                        strokeDasharray="4,3"
+                        strokeOpacity={0.8}
+                      />
+                      <rect
+                        x={padding.left + 12}
+                        y={getYReturn(gridAnalysis.topLeaderToken.lastReturn) - 10}
+                        width={185}
+                        height={20}
+                        rx={5}
+                        fill="#2d0b13"
+                        fillOpacity={0.92}
+                        stroke="#fb7185"
+                        strokeWidth={1}
+                      />
+                      <text
+                        x={padding.left + 20}
+                        y={getYReturn(gridAnalysis.topLeaderToken.lastReturn) + 4}
+                        className="font-mono text-[10px] fill-rose-300 font-bold"
+                      >
+                        🔴 LEADER : {gridAnalysis.topLeaderToken.token.baseAsset} (+{gridAnalysis.topLeaderToken.lastReturn.toFixed(1)}%)
+                      </text>
+                    </g>
+                  </g>
+                )}
+
                 {/* Hover line & tooltip */}
                 {hoverIndex !== null && (
                   <g>
@@ -655,6 +927,232 @@ export const SolanaWavePage: React.FC<SolanaWavePageProps> = ({ tickers }) => {
           })}
         </div>
       </section>
+
+      {/* ===== GRILLE DE ROTATION MULTI-TOKENS (ARBITRAGE DE DISPERSION) ===== */}
+      {showTokenGrid && gridAnalysis && (
+        <section className="rounded-2xl border border-line bg-surface p-5 sm:p-6 shadow-xl">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-line pb-4">
+            <div>
+              <h2 className="text-base font-bold text-ink flex items-center gap-2">
+                <Grid className="h-4 w-4 text-accent" />
+                Grille de Rotation Multi-Tokens (Arbitrage Relatif)
+              </h2>
+              <p className="text-xs text-ink-dim">
+                Stratégie de rebond à paliers : Achat du token en retard (Deepest Dip), vente dès rebond de +{gridTargetPercent}%, et réinjection continue dans le creux suivant.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-semibold text-accent border border-accent/20">
+                <RotateCcw className="h-3.5 w-3.5 animate-spin" style={{ animationDuration: '6s' }} />
+                Cycle de Rotation Automatique
+              </span>
+            </div>
+          </div>
+
+          {/* 3 Step Pipeline Cards */}
+          <div className="mt-5 grid gap-4 lg:grid-cols-3">
+            {/* Step 1: Current Dip Buy */}
+            <div className="rounded-xl border border-up/30 bg-up/[0.04] p-5 relative overflow-hidden">
+              <div className="flex items-center justify-between text-xs font-semibold text-up">
+                <span className="flex items-center gap-1.5">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-up/20 text-[11px] font-bold">1</span>
+                  ACHAT EN COURS (Deep Dip)
+                </span>
+                <span className="rounded bg-up/20 px-2 py-0.5 font-mono text-[10px] font-bold">Palier 1</span>
+              </div>
+              <div className="mt-3 flex items-baseline justify-between">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: gridAnalysis.deepestDipToken.token.color }}
+                  />
+                  <span className="text-xl font-bold text-ink font-mono">
+                    {gridAnalysis.deepestDipToken.token.baseAsset}
+                  </span>
+                  <span className="text-xs text-ink-dim">
+                    ({gridAnalysis.deepestDipToken.token.name})
+                  </span>
+                </div>
+                <span className="text-lg font-bold font-mono text-down">
+                  {gridAnalysis.deepestDipToken.lastReturn >= 0 ? '+' : ''}{gridAnalysis.deepestDipToken.lastReturn.toFixed(1)}%
+                </span>
+              </div>
+              <div className="mt-2 text-xs text-ink-dim font-mono">
+                Prix actuel : <strong className="text-ink">${gridAnalysis.deepestDipToken.lastPrice < 1 ? gridAnalysis.deepestDipToken.lastPrice.toFixed(4) : gridAnalysis.deepestDipToken.lastPrice.toFixed(2)}</strong>
+              </div>
+              <div className="mt-3 text-xs text-ink-faint">
+                Plus forte sous-performance du panier Solana. Haute probabilité de rattrapage statistique vers la moyenne ({gridAnalysis.avgReturn >= 0 ? '+' : ''}{gridAnalysis.avgReturn.toFixed(1)}%).
+              </div>
+            </div>
+
+            {/* Step 2: Target Exit */}
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.04] p-5 relative overflow-hidden">
+              <div className="flex items-center justify-between text-xs font-semibold text-amber-400">
+                <span className="flex items-center gap-1.5">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-500/20 text-[11px] font-bold">2</span>
+                  OBJECTIF DE VENTE (+{gridTargetPercent}%)
+                </span>
+                <span className="rounded bg-amber-500/20 px-2 py-0.5 font-mono text-[10px] font-bold">Gain Net</span>
+              </div>
+              <div className="mt-3 flex items-baseline justify-between">
+                <div className="flex items-center gap-2">
+                  <Target className="h-4 w-4 text-amber-400" />
+                  <span className="text-xl font-bold text-amber-300 font-mono">
+                    +{gridTargetPercent.toFixed(1)}%
+                  </span>
+                </div>
+                <span className="text-sm font-semibold font-mono text-amber-300">
+                  Niveau : {gridAnalysis.targetExitReturn >= 0 ? '+' : ''}{gridAnalysis.targetExitReturn.toFixed(1)}%
+                </span>
+              </div>
+              <div className="mt-2 text-xs text-ink-dim font-mono">
+                Prix cible : <strong className="text-amber-200">${gridAnalysis.targetExitPrice < 1 ? gridAnalysis.targetExitPrice.toFixed(4) : gridAnalysis.targetExitPrice.toFixed(2)}</strong>
+              </div>
+              <div className="mt-3 text-xs text-ink-faint">
+                Dès que {gridAnalysis.deepestDipToken.token.baseAsset} valide +{gridTargetPercent}%, prise de profit et rotation immédiate des capitaux vers l'étape 3.
+              </div>
+            </div>
+
+            {/* Step 3: Next Rotation Target */}
+            <div className="rounded-xl border border-sky-500/30 bg-sky-500/[0.04] p-5 relative overflow-hidden">
+              <div className="flex items-center justify-between text-xs font-semibold text-sky-400">
+                <span className="flex items-center gap-1.5">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-500/20 text-[11px] font-bold">3</span>
+                  ROTATION SUIVANTE (Prochain Creux)
+                </span>
+                <span className="rounded bg-sky-500/20 px-2 py-0.5 font-mono text-[10px] font-bold">File d'attente</span>
+              </div>
+              <div className="mt-3 flex items-baseline justify-between">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: gridAnalysis.nextInQueueToken.token.color }}
+                  />
+                  <span className="text-xl font-bold text-ink font-mono">
+                    {gridAnalysis.nextInQueueToken.token.baseAsset}
+                  </span>
+                  <span className="text-xs text-ink-dim">
+                    ({gridAnalysis.nextInQueueToken.token.name})
+                  </span>
+                </div>
+                <span className="text-lg font-bold font-mono text-down">
+                  {gridAnalysis.nextInQueueToken.lastReturn >= 0 ? '+' : ''}{gridAnalysis.nextInQueueToken.lastReturn.toFixed(1)}%
+                </span>
+              </div>
+              <div className="mt-2 text-xs text-ink-dim font-mono">
+                Prix actuel : <strong className="text-ink">${gridAnalysis.nextInQueueToken.lastPrice < 1 ? gridAnalysis.nextInQueueToken.lastPrice.toFixed(4) : gridAnalysis.nextInQueueToken.lastPrice.toFixed(2)}</strong>
+              </div>
+              <div className="mt-3 text-xs text-ink-faint">
+                Prochain token en retard. Le capital encaissé à l'étape 2 est réinvesti immédiatement dans ce token pour capter son rebond.
+              </div>
+            </div>
+          </div>
+
+          {/* Grid Metrics Bar */}
+          <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4 rounded-xl border border-line-strong bg-well p-4 text-xs font-mono">
+            <div>
+              <div className="text-ink-faint font-sans">Spread Écosystème</div>
+              <div className="mt-1 text-base font-bold text-accent">{gridAnalysis.spreadPercent.toFixed(1)}%</div>
+            </div>
+            <div>
+              <div className="text-ink-faint font-sans">Moyenne Solana Core</div>
+              <div className="mt-1 text-base font-bold text-ink">
+                {gridAnalysis.avgReturn >= 0 ? `+${gridAnalysis.avgReturn.toFixed(1)}%` : `${gridAnalysis.avgReturn.toFixed(1)}%`}
+              </div>
+            </div>
+            <div>
+              <div className="text-ink-faint font-sans">Rotations +{gridTargetPercent}% Validées</div>
+              <div className="mt-1 text-base font-bold text-up">{gridAnalysis.historicalRotationsCount} cycles</div>
+            </div>
+            <div>
+              <div className="text-ink-faint font-sans">Gain Théorique Grille</div>
+              <div className="mt-1 text-base font-bold text-up">
+                +{(gridAnalysis.historicalRotationsCount * gridTargetPercent).toFixed(1)}%
+              </div>
+            </div>
+          </div>
+
+          {/* Live Ranking Table of all 8 tokens */}
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-line text-ink-faint">
+                  <th className="pb-2.5 pl-2 font-medium">Palier Grille</th>
+                  <th className="pb-2.5 font-medium">Token</th>
+                  <th className="pb-2.5 font-medium">Prix Direct</th>
+                  <th className="pb-2.5 font-medium">Rendement Fenêtre</th>
+                  <th className="pb-2.5 font-medium">Écart vs Moyenne</th>
+                  <th className="pb-2.5 pr-2 font-medium">Rôle dans la Grille</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line/60 font-mono">
+                {gridAnalysis.tokensRanking.map((item, index) => {
+                  const isLowest = index === 0;
+                  const isSecond = index === 1;
+                  const isHighest = index === gridAnalysis.tokensRanking.length - 1;
+                  const devFromAvg = item.lastReturn - gridAnalysis.avgReturn;
+
+                  return (
+                    <tr
+                      key={item.token.id}
+                      className={`hover:bg-white/[0.02] transition-colors ${
+                        isLowest ? 'bg-up/[0.04]' : isHighest ? 'bg-down/[0.03]' : ''
+                      }`}
+                    >
+                      <td className="py-2.5 pl-2">
+                        <span className={`inline-flex items-center justify-center rounded px-2 py-0.5 text-[10px] font-bold ${
+                          isLowest ? 'bg-up/20 text-up border border-up/30' :
+                          isSecond ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' :
+                          isHighest ? 'bg-down/20 text-down border border-down/30' :
+                          'bg-well text-ink-dim'
+                        }`}>
+                          #{index + 1}
+                        </span>
+                      </td>
+                      <td className="py-2.5 font-sans font-semibold text-ink flex items-center gap-2">
+                        <span
+                          className="h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: item.token.color }}
+                        />
+                        <span>{item.token.baseAsset}</span>
+                        <span className="text-[11px] font-normal text-ink-faint">({item.token.name})</span>
+                      </td>
+                      <td className="py-2.5 text-ink">
+                        ${item.lastPrice < 1 ? item.lastPrice.toFixed(4) : item.lastPrice.toFixed(2)}
+                      </td>
+                      <td className={`py-2.5 font-bold ${item.lastReturn >= 0 ? 'text-up' : 'text-down'}`}>
+                        {item.lastReturn >= 0 ? `+${item.lastReturn.toFixed(1)}%` : `${item.lastReturn.toFixed(1)}%`}
+                      </td>
+                      <td className="py-2.5 text-ink-dim">
+                        {devFromAvg >= 0 ? `+${devFromAvg.toFixed(1)}%` : `${devFromAvg.toFixed(1)}%`}
+                      </td>
+                      <td className="py-2.5 pr-2">
+                        {isLowest ? (
+                          <span className="inline-flex items-center gap-1 text-up font-bold">
+                            🟢 ACHAT PRIORITAIRE (Palier 1)
+                          </span>
+                        ) : isSecond ? (
+                          <span className="inline-flex items-center gap-1 text-sky-400 font-semibold">
+                            🟡 SUIVANT EN ROTATION (Palier 2)
+                          </span>
+                        ) : isHighest ? (
+                          <span className="inline-flex items-center gap-1 text-down font-semibold">
+                            🔴 ZONE DE VENTE / LEADER
+                          </span>
+                        ) : (
+                          <span className="text-ink-faint">
+                            ⚪ Palier Neutre (Attente)
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* ===== CHART 2: L'Onde Ondulatoire Stationnaire Ψ(t) ===== */}
       <section className="rounded-2xl border border-line bg-surface p-5 sm:p-6 shadow-xl">
